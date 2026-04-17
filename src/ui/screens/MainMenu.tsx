@@ -132,7 +132,7 @@ export function MainMenu() {
 
         {/* Title */}
         <h1 className="main-menu-title">
-          AlchEx
+          EvoCracker
         </h1>
 
         {/* Subtitle */}
