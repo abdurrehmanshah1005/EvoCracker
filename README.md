@@ -1,4 +1,4 @@
-# 🏰 Project AlchEx: The Summoner's Trial
+# 🏰 Project EvoCracker: The Summoner's Trial
 
 > **An AI-first, web-based top-down 2D dungeon stealth/strategy game**  
 > Built with React + Vite + PixiJS v8 + TypeScript  
@@ -8,7 +8,7 @@
 
 ## What is this?
 
-AlchEx is an **AI research project** wrapped in a game. Every enemy is powered by a real search algorithm. Between floors, a Genetic Algorithm evolves the enemy population to counter your playstyle. A real-time Analytics Overlay lets you watch the AI think.
+EvoCracker is an **AI research project** wrapped in a game. Every enemy is powered by a real search algorithm. Between floors, a Genetic Algorithm evolves the enemy population to counter your playstyle. A real-time Analytics Overlay lets you watch the AI think.
 
 ---
 
