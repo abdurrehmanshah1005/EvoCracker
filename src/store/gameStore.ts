@@ -8,7 +8,7 @@ import type { DungeonData } from '@game/world/DungeonGenerator';
 import type { Genome, PlayerProfile, GenerationStats } from '@ai/evolution/GeneticAlgorithm';
 
 // --- Game State ---
-export type GameScreen = 'mainMenu' | 'playing' | 'algorithmLab' | 'gachaDefense' | 'gacha' | 'settings' | 'leaderboard' | 'evolution' | 'gameOver';
+export type GameScreen = 'mainMenu' | 'characterSelect' | 'playing' | 'algorithmLab' | 'gachaDefense' | 'gacha' | 'settings' | 'leaderboard' | 'evolution' | 'gameOver';
 
 export interface EnemyAnalyticsData {
   entityId: number;
@@ -26,6 +26,10 @@ interface GameState {
   // Screen
   currentScreen: GameScreen;
   setScreen: (screen: GameScreen) => void;
+
+  // Character selection (index into the character spritesheet)
+  selectedCharacter: number;
+  setSelectedCharacter: (index: number) => void;
 
   // Game state
   isPaused: boolean;
@@ -87,6 +91,10 @@ export const useGameStore = create<GameState>((set) => ({
   // Screen
   currentScreen: 'mainMenu',
   setScreen: (screen) => set({ currentScreen: screen }),
+
+  // Character selection
+  selectedCharacter: 0,
+  setSelectedCharacter: (index) => set({ selectedCharacter: index }),
 
   // Game state
   isPaused: false,

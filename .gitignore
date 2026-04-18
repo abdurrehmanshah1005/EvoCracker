@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Raw asset packs (large source files)
+2D Pixel Dungeon Asset Pack v2.0/

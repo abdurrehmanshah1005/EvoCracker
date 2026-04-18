@@ -3,7 +3,7 @@
 // ========================
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { Application, Container, Graphics, Text, TextStyle } from 'pixi.js';
+import { Application, Container, Graphics, Text, TextStyle, Sprite, AnimatedSprite } from 'pixi.js';
 import { useGameStore } from '@store/gameStore';
 import { InputManager } from '@core/InputManager';
 import { Camera } from '@core/Camera';
@@ -12,7 +12,7 @@ import { generateDungeon, getBiomeForFloor } from '@game/world/DungeonGenerator'
 import { TILE_SIZE, TileType, GRID_COLS, GRID_ROWS, ALGORITHM_COLORS, AlertState, EnemyType } from '@utils/constants';
 import { AIAnalyticsPanel } from '@ui/analytics/AIAnalyticsPanel';
 import { PlayerHUD } from '@ui/hud/PlayerHUD';
-import { createPlayerSprite } from '@core/SpriteFactory';
+import { createPlayerSprite, initSpriteAssets } from '@core/SpriteFactory';
 import { createEnemy, getEnemyTypesForFloor } from '@game/entities/enemies/Archetypes';
 import { updateVision } from '@game/systems/VisionSystem';
 import { createDefaultItemLoadout, updateItems, type PlayerState } from '@game/entities/items/ItemSystem';
@@ -20,6 +20,7 @@ import { createRandomGenome } from '@ai/evolution/GeneticAlgorithm';
 import { EventBus, GameEvents } from '@core/EventBus';
 import type { EnemyBase } from '@game/entities/enemies/EnemyBase';
 import { randomInt } from '@utils/random';
+import { loadTileset, isTilesetLoaded, getTileTexture, getWallTexture, loadItemAnimations } from '@core/DungeonTilesetLoader';
 
 // ===== MUCH BETTER TILE COLORS — High contrast ==========================
 const TILE_COLORS: Record<number, number> = {
@@ -79,7 +80,7 @@ export function GameScreen() {
     currentFloor, analyticsEnabled, toggleAnalytics,
     setDungeonData, setFps, setEnemyAnalytics, setPlayerHealth, addScore,
     showPaths, showFOV,
-    setScreen,
+    setScreen, selectedCharacter,
   } = useGameStore();
 
   const showNotification = useCallback((msg: string) => {
@@ -109,6 +110,11 @@ export function GameScreen() {
 
     const input = InputManager.getInstance();
     input.init();
+
+    // ── Load pixel-art assets ──────────────────────────────────────
+    await loadTileset();
+    await initSpriteAssets();
+    const itemAnims = await loadItemAnimations();
 
     // ── Containers ─────────────────────────────────────────────────
     const worldContainer = new Container();
@@ -147,7 +153,7 @@ export function GameScreen() {
     renderMarkers(worldContainer, dungeon);
 
     // ── Player ────────────────────────────────────────────────────
-    const playerSprite = createPlayerSprite();
+    const playerSprite = createPlayerSprite(selectedCharacter);
     playerSprite.container.zIndex = 15;
     worldContainer.addChild(playerSprite.container);
 
@@ -444,7 +450,7 @@ export function GameScreen() {
       appRef.current = null;
       enemiesRef.current = [];
     };
-  }, [currentFloor, setDungeonData, setFps, toggleAnalytics, setEnemyAnalytics, setPlayerHealth, showPaths, showFOV, showNotification, addScore, setScreen]);
+  }, [currentFloor, setDungeonData, setFps, toggleAnalytics, setEnemyAnalytics, setPlayerHealth, showPaths, showFOV, showNotification, addScore, setScreen, selectedCharacter]);
 
   useEffect(() => {
     const cleanup = initGame();
@@ -491,83 +497,121 @@ export function GameScreen() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// TILEMAP RENDERER — High contrast, clear rooms vs walls
+// TILEMAP RENDERER — Uses pixel-art tileset when available
 // ══════════════════════════════════════════════════════════════════════
 
 function renderTilemap(container: Container, tiles: number[][], w: number, h: number) {
-  const g = new Graphics();
-  g.label = 'tiles';
-  g.zIndex = 0;
+  const tileContainer = new Container();
+  tileContainer.label = 'tiles';
+  tileContainer.zIndex = 0;
 
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const tile = tiles[y][x] as TileType;
-      const color = TILE_COLORS[tile] ?? 0x0a0a0a;
-      const px = x * TILE_SIZE;
-      const py = y * TILE_SIZE;
+  const useSpritesheet = isTilesetLoaded();
 
-      // Main tile fill
-      g.rect(px, py, TILE_SIZE, TILE_SIZE);
-      g.fill({ color });
+  if (useSpritesheet) {
+    // ── REAL SPRITE TILES ──────────────────────────────────────────
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const tile = tiles[y][x] as TileType;
+        const px = x * TILE_SIZE;
+        const py = y * TILE_SIZE;
 
-      // Wall 3D depth — bottom edge lighter to create height illusion
-      if (tile === TileType.WALL) {
-        if (y + 1 < h && tiles[y + 1][x] !== TileType.WALL) {
-          g.rect(px, py + TILE_SIZE - 4, TILE_SIZE, 4);
-          g.fill({ color: WALL_TOP });
+        let tex: ReturnType<typeof getTileTexture>;
+
+        if (tile === TileType.WALL) {
+          tex = getWallTexture(x, y, tiles, w, h);
+        } else {
+          tex = getTileTexture(tile, x, y);
         }
-        // Top edge highlight
-        if (y > 0 && tiles[y - 1][x] !== TileType.WALL) {
-          g.rect(px, py, TILE_SIZE, 2);
-          g.fill({ color: 0x222238 });
+
+        if (tex) {
+          const sprite = new Sprite(tex);
+          sprite.x = px;
+          sprite.y = py;
+          sprite.width = TILE_SIZE;
+          sprite.height = TILE_SIZE;
+          tileContainer.addChild(sprite);
+        } else {
+          // Fallback for unmapped tiles
+          const g = new Graphics();
+          const color = TILE_COLORS[tile] ?? 0x0a0a0a;
+          g.rect(px, py, TILE_SIZE, TILE_SIZE);
+          g.fill({ color });
+          tileContainer.addChild(g);
         }
-      }
-
-      // Floor grid lines — visible subtle grid
-      if (tile !== TileType.WALL) {
-        g.rect(px, py, TILE_SIZE, 1);
-        g.fill({ color: FLOOR_GRID_LINE, alpha: 0.4 });
-        g.rect(px, py, 1, TILE_SIZE);
-        g.fill({ color: FLOOR_GRID_LINE, alpha: 0.4 });
-      }
-
-      // Trap warning pattern — red X
-      if (tile === TileType.FLOOR_TRAP) {
-        g.moveTo(px + 4, py + 4);
-        g.lineTo(px + TILE_SIZE - 4, py + TILE_SIZE - 4);
-        g.stroke({ color: 0xff2222, width: 2, alpha: 0.5 });
-        g.moveTo(px + TILE_SIZE - 4, py + 4);
-        g.lineTo(px + 4, py + TILE_SIZE - 4);
-        g.stroke({ color: 0xff2222, width: 2, alpha: 0.5 });
-      }
-
-      // Water shimmer
-      if (tile === TileType.FLOOR_WATER) {
-        g.rect(px + 4, py + 12, TILE_SIZE - 8, 2);
-        g.fill({ color: 0x3388cc, alpha: 0.4 });
-        g.rect(px + 10, py + 22, TILE_SIZE - 20, 2);
-        g.fill({ color: 0x3388cc, alpha: 0.3 });
-      }
-
-      // Mud splotch
-      if (tile === TileType.FLOOR_MUD) {
-        g.circle(px + 10, py + 14, 4);
-        g.fill({ color: 0x4a3410, alpha: 0.4 });
-        g.circle(px + 22, py + 20, 3);
-        g.fill({ color: 0x4a3410, alpha: 0.3 });
       }
     }
+  } else {
+    // ── FALLBACK: Graphics-based colored tiles ─────────────────────
+    const g = new Graphics();
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const tile = tiles[y][x] as TileType;
+        const color = TILE_COLORS[tile] ?? 0x0a0a0a;
+        const px = x * TILE_SIZE;
+        const py = y * TILE_SIZE;
+
+        g.rect(px, py, TILE_SIZE, TILE_SIZE);
+        g.fill({ color });
+
+        // Wall 3D depth
+        if (tile === TileType.WALL) {
+          if (y + 1 < h && tiles[y + 1][x] !== TileType.WALL) {
+            g.rect(px, py + TILE_SIZE - 4, TILE_SIZE, 4);
+            g.fill({ color: WALL_TOP });
+          }
+          if (y > 0 && tiles[y - 1][x] !== TileType.WALL) {
+            g.rect(px, py, TILE_SIZE, 2);
+            g.fill({ color: 0x222238 });
+          }
+        }
+
+        // Floor grid lines
+        if (tile !== TileType.WALL) {
+          g.rect(px, py, TILE_SIZE, 1);
+          g.fill({ color: FLOOR_GRID_LINE, alpha: 0.4 });
+          g.rect(px, py, 1, TILE_SIZE);
+          g.fill({ color: FLOOR_GRID_LINE, alpha: 0.4 });
+        }
+
+        // Trap warning pattern
+        if (tile === TileType.FLOOR_TRAP) {
+          g.moveTo(px + 4, py + 4);
+          g.lineTo(px + TILE_SIZE - 4, py + TILE_SIZE - 4);
+          g.stroke({ color: 0xff2222, width: 2, alpha: 0.5 });
+          g.moveTo(px + TILE_SIZE - 4, py + 4);
+          g.lineTo(px + 4, py + TILE_SIZE - 4);
+          g.stroke({ color: 0xff2222, width: 2, alpha: 0.5 });
+        }
+
+        // Water shimmer
+        if (tile === TileType.FLOOR_WATER) {
+          g.rect(px + 4, py + 12, TILE_SIZE - 8, 2);
+          g.fill({ color: 0x3388cc, alpha: 0.4 });
+          g.rect(px + 10, py + 22, TILE_SIZE - 20, 2);
+          g.fill({ color: 0x3388cc, alpha: 0.3 });
+        }
+
+        // Mud splotch
+        if (tile === TileType.FLOOR_MUD) {
+          g.circle(px + 10, py + 14, 4);
+          g.fill({ color: 0x4a3410, alpha: 0.4 });
+          g.circle(px + 22, py + 20, 3);
+          g.fill({ color: 0x4a3410, alpha: 0.3 });
+        }
+      }
+    }
+    tileContainer.addChild(g);
   }
 
-  container.addChild(g);
+  container.addChild(tileContainer);
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// MARKERS — Exit, treasure, floor label
+// MARKERS — Exit, treasure, floor label (with pixel-art sprites)
 // ══════════════════════════════════════════════════════════════════════
 
 function renderMarkers(container: Container, dungeon: ReturnType<typeof generateDungeon>) {
-  // Exit — pulsing green circle
+  // Exit — pulsing green glow + label
   const exit = new Graphics();
   exit.circle(dungeon.exitPoint.x * TILE_SIZE + 16, dungeon.exitPoint.y * TILE_SIZE + 16, 14);
   exit.fill({ color: 0x22ff66, alpha: 0.25 });
@@ -586,7 +630,7 @@ function renderMarkers(container: Container, dungeon: ReturnType<typeof generate
   exitLabel.zIndex = 20;
   container.addChild(exitLabel);
 
-  // Treasure — golden diamonds
+  // Treasure — golden diamonds (kept as fallback; real chest sprites loaded async separately)
   for (const pt of dungeon.treasurePoints) {
     const gem = new Graphics();
     gem.star(pt.x * TILE_SIZE + 16, pt.y * TILE_SIZE + 16, 5, 6, 12);
