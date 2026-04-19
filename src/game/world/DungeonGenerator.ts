@@ -30,6 +30,12 @@ export interface DungeonData {
   floor: number;
 }
 
+interface RGB {
+  r: number;
+  g: number;
+  b: number;
+}
+
 interface BSPNode {
   x: number;
   y: number;
@@ -45,12 +51,22 @@ const MAX_ROOM_SIZE = 12;
 const MIN_LEAF_SIZE = 8;
 
 /** Generate a complete dungeon floor */
-export function generateDungeon(
+export async function generateDungeon(
   width: number,
   height: number,
   floor: number,
   biome: BiomeType = BiomeType.DUNGEON
-): DungeonData {
+): Promise<DungeonData> {
+  // Floor 1: load map directly from /public/assets/maps/floor1_layout.png
+  if (floor === 1) {
+    const fromPng = await generateFloorFromPngLayout(width, height, floor, biome);
+    if (fromPng) return fromPng;
+
+    // Fallback if image loading/parsing fails
+    const handcrafted = generateHandcraftedCryptMap(width, height, floor, biome);
+    if (handcrafted) return handcrafted;
+  }
+
   // Initialize tile grid with walls
   const tiles: TileType[][] = [];
   for (let y = 0; y < height; y++) {
@@ -131,6 +147,63 @@ export function generateDungeon(
     biome,
     floor,
   };
+}
+
+async function generateFloorFromPngLayout(
+  width: number,
+  height: number,
+  floor: number,
+  biome: BiomeType
+): Promise<DungeonData | null> {
+  if (typeof window === 'undefined') return null;
+
+  const layoutPaths = [
+    '/assets/maps/floor1.png',
+    '/assets/maps/floor1_layout.png',
+  ];
+
+  try {
+    let image: HTMLImageElement | null = null;
+
+    for (const src of layoutPaths) {
+      try {
+        image = await new Promise<HTMLImageElement>((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = () => reject(new Error(`Failed to load layout: ${src}`));
+          img.src = src;
+        });
+        break;
+      } catch {
+        // Try next layout path
+      }
+    }
+
+    if (!image) return null;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, width, height);
+
+    // Preserve aspect ratio and center the map; empty margins stay wall.
+    const scale = Math.min(width / image.width, height / image.height);
+    const drawW = Math.max(1, Math.floor(image.width * scale));
+    const drawH = Math.max(1, Math.floor(image.height * scale));
+    const dx = Math.floor((width - drawW) / 2);
+    const dy = Math.floor((height - drawH) / 2);
+    ctx.drawImage(image, dx, dy, drawW, drawH);
+
+    const data = ctx.getImageData(0, 0, width, height).data;
+    return generateDungeonFromPngPixels(data, width, height, floor, biome);
+  } catch {
+    return null;
+  }
 }
 
 function splitBSP(node: BSPNode, leaves: BSPNode[]): void {
@@ -298,4 +371,336 @@ function getFloorTile(biome: BiomeType): TileType {
 export function getBiomeForFloor(floor: number): BiomeType {
   const biomes = [BiomeType.DUNGEON, BiomeType.CAVE, BiomeType.FOREST, BiomeType.CASTLE, BiomeType.LAKE, BiomeType.RUINS];
   return biomes[(floor - 1) % biomes.length];
+}
+
+/**
+ * Build a dungeon directly from PNG pixel data.
+ *
+ * Recommended palette (with tolerance):
+ * - Black/dark      -> wall
+ * - White/gray      -> floor stone
+ * - Red             -> spawn (stairs up)
+ * - Green           -> exit (stairs down)
+ * - Yellow          -> treasure
+ * - Blue/Cyan       -> water
+ * - Brown           -> mud
+ * - Magenta         -> trap
+ */
+export function generateDungeonFromPngPixels(
+  pixels: Uint8ClampedArray,
+  width: number,
+  height: number,
+  floor: number,
+  biome: BiomeType = BiomeType.DUNGEON
+): DungeonData {
+  const tiles: TileType[][] = [];
+  const enemySpawnPoints: { x: number; y: number }[] = [];
+  const treasurePoints: { x: number; y: number }[] = [];
+
+  let spawnPoint: { x: number; y: number } | null = null;
+  let exitPoint: { x: number; y: number } | null = null;
+
+  const near = (c: RGB, t: RGB, tol = 70): boolean => (
+    Math.abs(c.r - t.r) <= tol &&
+    Math.abs(c.g - t.g) <= tol &&
+    Math.abs(c.b - t.b) <= tol
+  );
+
+  const floorTile = getFloorTile(biome);
+
+  for (let y = 0; y < height; y++) {
+    tiles[y] = [];
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      const r = pixels[i] ?? 0;
+      const g = pixels[i + 1] ?? 0;
+      const b = pixels[i + 2] ?? 0;
+      const a = pixels[i + 3] ?? 255;
+
+      const color: RGB = { r, g, b };
+      const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b);
+
+      let tile: TileType = floorTile;
+
+      if (a < 20 || luminance < 40 || near(color, { r: 0, g: 0, b: 0 }, 40)) {
+        tile = TileType.WALL;
+      } else if (near(color, { r: 255, g: 0, b: 0 })) {
+        tile = TileType.STAIRS_UP;
+        spawnPoint = { x, y };
+      } else if (near(color, { r: 0, g: 255, b: 0 })) {
+        tile = TileType.STAIRS_DOWN;
+        exitPoint = { x, y };
+      } else if (near(color, { r: 255, g: 255, b: 0 })) {
+        tile = TileType.TREASURE;
+        treasurePoints.push({ x, y });
+      } else if (near(color, { r: 0, g: 120, b: 255 }) || near(color, { r: 0, g: 255, b: 255 })) {
+        tile = TileType.FLOOR_WATER;
+      } else if (near(color, { r: 120, g: 80, b: 40 })) {
+        tile = TileType.FLOOR_MUD;
+      } else if (near(color, { r: 255, g: 0, b: 255 })) {
+        tile = TileType.FLOOR_TRAP;
+      }
+
+      tiles[y][x] = tile;
+    }
+  }
+
+  // Fallback spawn/exit if not painted in PNG
+  if (!spawnPoint) {
+    outerSpawn:
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        if (tiles[y][x] !== TileType.WALL) {
+          spawnPoint = { x, y };
+          tiles[y][x] = TileType.STAIRS_UP;
+          break outerSpawn;
+        }
+      }
+    }
+  }
+
+  if (!exitPoint) {
+    outerExit:
+    for (let y = height - 2; y >= 1; y--) {
+      for (let x = width - 2; x >= 1; x--) {
+        if (tiles[y][x] !== TileType.WALL) {
+          exitPoint = { x, y };
+          tiles[y][x] = TileType.STAIRS_DOWN;
+          break outerExit;
+        }
+      }
+    }
+  }
+
+  // Auto-generate enemy spawns from walkable floor tiles
+  for (let y = 2; y < height - 2; y += 3) {
+    for (let x = 2; x < width - 2; x += 3) {
+      const t = tiles[y][x];
+      const walkable = t !== TileType.WALL && t !== TileType.STAIRS_UP && t !== TileType.STAIRS_DOWN && t !== TileType.TREASURE;
+      if (!walkable) continue;
+      if (spawnPoint && Math.abs(x - spawnPoint.x) + Math.abs(y - spawnPoint.y) < 5) continue;
+      if (exitPoint && Math.abs(x - exitPoint.x) + Math.abs(y - exitPoint.y) < 4) continue;
+      enemySpawnPoints.push({ x, y });
+    }
+  }
+
+  // Minimal room metadata (single map-room + start/exit pseudo rooms)
+  const rooms: Room[] = [
+    {
+      x: 1,
+      y: 1,
+      width: Math.max(1, width - 2),
+      height: Math.max(1, height - 2),
+      centerX: Math.floor(width / 2),
+      centerY: Math.floor(height / 2),
+      type: 'normal',
+      connected: true,
+    },
+    {
+      x: spawnPoint?.x ?? 1,
+      y: spawnPoint?.y ?? 1,
+      width: 1,
+      height: 1,
+      centerX: spawnPoint?.x ?? 1,
+      centerY: spawnPoint?.y ?? 1,
+      type: 'start',
+      connected: true,
+    },
+    {
+      x: exitPoint?.x ?? Math.max(1, width - 2),
+      y: exitPoint?.y ?? Math.max(1, height - 2),
+      width: 1,
+      height: 1,
+      centerX: exitPoint?.x ?? Math.max(1, width - 2),
+      centerY: exitPoint?.y ?? Math.max(1, height - 2),
+      type: 'exit',
+      connected: true,
+    },
+  ];
+
+  const finalSpawn = spawnPoint ?? { x: 1, y: 1 };
+  const finalExit = exitPoint ?? { x: Math.max(1, width - 2), y: Math.max(1, height - 2) };
+
+  return {
+    width,
+    height,
+    tiles,
+    rooms,
+    spawnPoint: finalSpawn,
+    exitPoint: finalExit,
+    treasurePoints,
+    enemySpawnPoints,
+    biome,
+    floor,
+  };
+}
+
+function generateHandcraftedCryptMap(
+  width: number,
+  height: number,
+  floor: number,
+  biome: BiomeType
+): DungeonData | null {
+  // Floor 1: hand-authored crypt layout matching the provided reference image
+  const MAP_W = 46;
+  const MAP_H = 32;
+
+  if (width < MAP_W || height < MAP_H) return null;
+
+  const tiles: TileType[][] = [];
+  for (let y = 0; y < height; y++) {
+    tiles[y] = [];
+    for (let x = 0; x < width; x++) {
+      tiles[y][x] = TileType.WALL;
+    }
+  }
+
+  // Keep this map anchored near top-left (not centered), matching reference composition
+  const ox = 1;
+  const oy = 1;
+
+  const carveRect = (x: number, y: number, w: number, h: number, tile: TileType = TileType.FLOOR_STONE) => {
+    for (let yy = y; yy < y + h; yy++) {
+      for (let xx = x; xx < x + w; xx++) {
+        const tx = ox + xx;
+        const ty = oy + yy;
+        if (ty >= 0 && ty < height && tx >= 0 && tx < width) {
+          tiles[ty][tx] = tile;
+        }
+      }
+    }
+  };
+
+  const carveH = (x1: number, x2: number, y: number, tile: TileType = TileType.FLOOR_STONE) => {
+    const from = Math.min(x1, x2);
+    const to = Math.max(x1, x2);
+    for (let x = from; x <= to; x++) carveRect(x, y, 1, 1, tile);
+  };
+
+  const carveV = (x: number, y1: number, y2: number, tile: TileType = TileType.FLOOR_STONE) => {
+    const from = Math.min(y1, y2);
+    const to = Math.max(y1, y2);
+    for (let y = from; y <= to; y++) carveRect(x, y, 1, 1, tile);
+  };
+
+  // ── Major rooms ────────────────────────────────────────────────
+  carveRect(1, 2, 7, 7);      // Entrance room (top-left)
+  carveRect(14, 2, 13, 6);    // Barracks (top-center-left)
+  carveRect(28, 2, 7, 5);     // Library (top-center)
+  carveRect(37, 2, 8, 6);     // Ossuary (top-right)
+
+  carveRect(4, 12, 24, 7);    // Grand hall (mid-left)
+
+  carveRect(1, 23, 9, 8);     // Fountain room (bottom-left)
+  carveRect(10, 23, 14, 7);   // South archive (bottom-mid-left)
+
+  // Bottom-middle looped corridor block (outer walk + inner wall island)
+  carveRect(10, 25, 21, 6);
+  carveRect(14, 26, 13, 3, TileType.WALL);
+
+  carveRect(27, 24, 7, 6);    // South crypt (bottom-mid-right)
+  carveRect(37, 13, 8, 8);    // Treasure chamber (mid-right)
+  carveRect(37, 24, 8, 7);    // Exit chamber (bottom-right)
+
+  // ── Corridors / vertical spines ────────────────────────────────
+  carveRect(3, 9, 2, 4);      // Entrance down to west hall
+  carveRect(2, 13, 3, 12);    // West vertical corridor
+
+  carveRect(20, 8, 2, 4);     // Barracks to grand hall
+  carveRect(31, 7, 2, 6);     // Library down connector
+  carveRect(40, 8, 2, 5);     // Ossuary down connector
+
+  carveRect(28, 15, 6, 2);    // Grand hall to right spine
+  carveRect(31, 10, 3, 15);   // Right-side spine (pre-traps)
+
+  carveRect(17, 19, 2, 5);    // Grand hall to south archive
+  carveRect(30, 25, 7, 2);    // South crypt to exit wing
+  carveRect(40, 21, 2, 4);    // Treasure to exit chamber
+
+  // ── Dirt/mud worn paths (visual match) ─────────────────────────
+  carveRect(14, 2, 6, 3, TileType.FLOOR_MUD);   // Barracks dirty corner
+  carveRect(30, 7, 2, 3, TileType.FLOOR_MUD);
+  carveRect(28, 17, 6, 2, TileType.FLOOR_MUD);
+  carveRect(10, 25, 21, 6, TileType.FLOOR_MUD);
+  carveRect(11, 23, 12, 2, TileType.FLOOR_MUD);
+
+  // Re-open stone route around mud loop and connectors
+  carveH(10, 30, 25);
+  carveH(10, 30, 30);
+  carveV(10, 25, 30);
+  carveV(30, 25, 30);
+  carveRect(24, 25, 4, 2);
+
+  // ── Spike traps ────────────────────────────────────────────────
+  carveRect(31, 18, 4, 2, TileType.FLOOR_TRAP); // right gauntlet (upper)
+  carveRect(31, 20, 4, 2, TileType.FLOOR_TRAP); // right gauntlet (lower)
+  carveRect(21, 29, 8, 1, TileType.FLOOR_TRAP); // bottom loop spikes
+
+  // Points of interest
+  const spawnPoint = { x: ox + 3, y: oy + 4 };
+  const exitPoint = { x: ox + 41, y: oy + 27 };
+  const treasurePoints = [
+    { x: ox + 39, y: oy + 16 },
+    { x: ox + 41, y: oy + 16 },
+    { x: ox + 42, y: oy + 17 },
+  ];
+
+  tiles[spawnPoint.y][spawnPoint.x] = TileType.STAIRS_UP;
+  tiles[exitPoint.y][exitPoint.x] = TileType.STAIRS_DOWN;
+  for (const t of treasurePoints) tiles[t.y][t.x] = TileType.TREASURE;
+
+  // Hand-authored enemy spawn points distributed per room/corridor
+  const enemySpawnPoints = [
+    { x: ox + 17, y: oy + 4 }, { x: ox + 24, y: oy + 4 },
+    { x: ox + 30, y: oy + 4 },
+    { x: ox + 39, y: oy + 4 }, { x: ox + 42, y: oy + 4 },
+    { x: ox + 9, y: oy + 14 }, { x: ox + 16, y: oy + 15 }, { x: ox + 23, y: oy + 15 },
+    { x: ox + 4, y: oy + 27 },
+    { x: ox + 14, y: oy + 26 }, { x: ox + 19, y: oy + 27 },
+    { x: ox + 29, y: oy + 27 },
+    { x: ox + 38, y: oy + 15 },
+  ];
+
+  const mkRoom = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    type: Room['type'] = 'normal'
+  ): Room => ({
+    x: ox + x,
+    y: oy + y,
+    width: w,
+    height: h,
+    centerX: ox + Math.floor(x + w / 2),
+    centerY: oy + Math.floor(y + h / 2),
+    type,
+    connected: true,
+  });
+
+  const rooms: Room[] = [
+    mkRoom(1, 2, 7, 7, 'start'),
+    mkRoom(14, 2, 13, 6, 'normal'),
+    mkRoom(28, 2, 7, 5, 'normal'),
+    mkRoom(37, 2, 8, 6, 'normal'),
+    mkRoom(4, 12, 24, 7, 'normal'),
+    mkRoom(1, 23, 9, 8, 'normal'),
+    mkRoom(10, 23, 14, 7, 'normal'),
+    mkRoom(27, 24, 7, 6, 'normal'),
+    mkRoom(37, 13, 8, 8, 'treasure'),
+    mkRoom(37, 24, 8, 7, 'exit'),
+  ];
+
+  return {
+    width,
+    height,
+    tiles,
+    rooms,
+    spawnPoint,
+    exitPoint,
+    treasurePoints,
+    enemySpawnPoints,
+    biome,
+    floor,
+  };
 }

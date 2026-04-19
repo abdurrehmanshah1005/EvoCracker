@@ -19,19 +19,17 @@
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
-    "ignoreDeprecations": "6.0",
 
     /* Path Aliases */
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@core/*": ["src/core/*"],
-      "@ai/*": ["src/ai/*"],
-      "@game/*": ["src/game/*"],
-      "@ui/*": ["src/ui/*"],
-      "@store/*": ["src/store/*"],
-      "@utils/*": ["src/utils/*"],
-      "@services/*": ["src/services/*"]
+      "@/*": ["./src/*"],
+      "@core/*": ["./src/core/*"],
+      "@ai/*": ["./src/ai/*"],
+      "@game/*": ["./src/game/*"],
+      "@ui/*": ["./src/ui/*"],
+      "@store/*": ["./src/store/*"],
+      "@utils/*": ["./src/utils/*"],
+      "@services/*": ["./src/services/*"]
     }
   },
   "include": ["src", "workers"]

@@ -1,7 +1,8 @@
 // ========================
 // SpriteFactory — Creates PixiJS display objects for all game entities
 //
-// Loads real pixel-art sprites from the 2D Pixel Dungeon Asset Pack.
+// Loads character sprites from individual sprite sheets per character.
+// Each character has a spritesheet with rows: idle, walk, attack.
 // Falls back to placeholder Graphics if textures fail to load.
 //
 // MOVEMENT NOTE:
@@ -24,39 +25,99 @@ export interface GameSprite {
   isPlaceholder: boolean;
 }
 
+// ── Character definitions ─────────────────────────────────────────────
+
+export interface CharacterDef {
+  name: string;
+  key: string;        // asset key for loading
+  sheet: string;      // path to sprite sheet PNG
+  frameW: number;     // pixel width of each frame
+  frameH: number;     // pixel height of each frame
+  cols: number;       // number of columns in the sheet
+  rows: number;       // number of rows in the sheet
+  idleRow: number;    // row index for idle animation
+  walkRow: number;    // row index for walk animation
+  attackRow: number;  // row index for attack animation
+  color: string;      // accent color for UI
+  description: string;
+  glowColor: number;  // hex glow color for in-game visibility
+}
+
+// The sprite sheets are roughly 1024x1024 with 8 columns × 3-5 rows.
+// We divide evenly: width/8 per frame, height/rows per frame.
+// We use a fixed frame count per animation: 8 frames across each row.
+export const CHARACTER_DEFS: CharacterDef[] = [
+  {
+    name: 'Mega Knight',
+    key: 'mega_knight',
+    sheet: '/assets/characters/mega_knight.png',
+    frameW: 0, frameH: 0, // computed at load time
+    cols: 8, rows: 5,
+    idleRow: 0, walkRow: 1, attackRow: 2,
+    color: '#4488ff',
+    description: 'Heavy armored warrior',
+    glowColor: 0x4488ff,
+  },
+  {
+    name: 'Akutagawa',
+    key: 'akutagawa',
+    sheet: '/assets/characters/akutagawa.png',
+    frameW: 0, frameH: 0,
+    cols: 8, rows: 3,
+    idleRow: 0, walkRow: 1, attackRow: 2,
+    color: '#aa44ff',
+    description: 'Dark shadow master',
+    glowColor: 0xaa44ff,
+  },
+  {
+    name: 'Homelander',
+    key: 'homelander',
+    sheet: '/assets/characters/homelander.png',
+    frameW: 0, frameH: 0,
+    cols: 8, rows: 3,
+    idleRow: 0, walkRow: 1, attackRow: 2,
+    color: '#ff4444',
+    description: 'Laser-eyed superman',
+    glowColor: 0xff4444,
+  },
+  {
+    name: 'Tung Tung Sahur',
+    key: 'tungtung',
+    sheet: '/assets/characters/tungtung.png',
+    frameW: 0, frameH: 0,
+    cols: 8, rows: 5,
+    idleRow: 0, walkRow: 2, attackRow: 3,
+    color: '#dd8844',
+    description: 'Rhythmic stick fighter',
+    glowColor: 0xdd8844,
+  },
+  {
+    name: 'Kenpachi',
+    key: 'kenpachi',
+    sheet: '/assets/characters/kenpachi.png',
+    frameW: 0, frameH: 0,
+    cols: 6, rows: 3,
+    idleRow: 0, walkRow: 1, attackRow: 2,
+    color: '#44dd88',
+    description: 'Wild sword demon',
+    glowColor: 0x44dd88,
+  },
+];
+
 // ── Asset cache ───────────────────────────────────────────────────────
 
-const characterTextureCache = new Map<string, Texture[]>();
+interface CharAnimFrames {
+  idle: Texture[];
+  walk: Texture[];
+  attack: Texture[];
+}
+
+const characterAnimCache = new Map<string, CharAnimFrames>();
 const monsterTextureCache = new Map<string, Texture[]>();
 let assetsInitialized = false;
 
-// Character spritesheet layout:
-// characters.png = 112×64 → 7 columns × 4 rows of 16×16
-// Each column is a character variant. Rows are animation frames.
-// characters_2.png = 112×32 → 7 columns × 2 rows of 16×16
-
+// Kept for backward compat — old column-based defs removed
 const CHAR_FRAME_SIZE = 16;
-const CHAR_COLS = 7;
-
-// Character definitions from the spritesheet
-// We'll use columns as different character classes
-export interface CharacterDef {
-  name: string;
-  sheet: 'characters' | 'characters_2';
-  col: number;   // Column in the spritesheet
-  rows: number;  // Number of frame rows available
-  color: string; // Preview color for UI
-  description: string;
-}
-
-export const CHARACTER_DEFS: CharacterDef[] = [
-  { name: 'Knight',    sheet: 'characters', col: 0, rows: 4, color: '#4488ff', description: 'Armored warrior' },
-  { name: 'Wizard',    sheet: 'characters', col: 1, rows: 4, color: '#aa44ff', description: 'Arcane spellcaster' },
-  { name: 'Rogue',     sheet: 'characters', col: 2, rows: 4, color: '#44dd88', description: 'Swift and stealthy' },
-  { name: 'Cleric',    sheet: 'characters', col: 3, rows: 4, color: '#ffdd44', description: 'Holy healer' },
-  { name: 'Ranger',    sheet: 'characters', col: 4, rows: 4, color: '#44ddff', description: 'Master of ranged combat' },
-  { name: 'Barbarian', sheet: 'characters', col: 5, rows: 4, color: '#ff6644', description: 'Brutal berserker' },
-];
 
 // Enemy type → monster/priest sprite mapping
 const ENEMY_SPRITE_MAP: Record<EnemyType, { folder: string; prefix: string }> = {
@@ -76,34 +137,44 @@ const ENEMY_SPRITE_MAP: Record<EnemyType, { folder: string; prefix: string }> = 
 export async function initSpriteAssets(): Promise<void> {
   if (assetsInitialized) return;
 
-  // Load character spritesheets
-  try {
-    const charSheet = await Assets.load('assets/dungeon-pack/characters.png') as Texture;
-    charSheet.source.scaleMode = 'nearest';
+  // Load each character sprite sheet
+  for (const charDef of CHARACTER_DEFS) {
+    try {
+      const sheet = await Assets.load(charDef.sheet) as Texture;
+      sheet.source.scaleMode = 'nearest';
 
-    // Parse each character column into frames
-    for (const charDef of CHARACTER_DEFS) {
-      const frames: Texture[] = [];
-      for (let row = 0; row < charDef.rows; row++) {
-        const frame = new Texture({
-          source: charSheet.source,
-          frame: new Rectangle(
-            charDef.col * CHAR_FRAME_SIZE,
-            row * CHAR_FRAME_SIZE,
-            CHAR_FRAME_SIZE,
-            CHAR_FRAME_SIZE
-          ),
-        });
-        frames.push(frame);
-      }
-      characterTextureCache.set(`char_${charDef.col}`, frames);
+      const imgW = sheet.width;
+      const imgH = sheet.height;
+      const fW = Math.floor(imgW / charDef.cols);
+      const fH = Math.floor(imgH / charDef.rows);
+      charDef.frameW = fW;
+      charDef.frameH = fH;
+
+      const extractRow = (row: number): Texture[] => {
+        const frames: Texture[] = [];
+        for (let col = 0; col < charDef.cols; col++) {
+          frames.push(new Texture({
+            source: sheet.source,
+            frame: new Rectangle(col * fW, row * fH, fW, fH),
+          }));
+        }
+        return frames;
+      };
+
+      characterAnimCache.set(charDef.key, {
+        idle: extractRow(charDef.idleRow),
+        walk: extractRow(charDef.walkRow),
+        attack: extractRow(charDef.attackRow),
+      });
+
+      console.log(`[SpriteFactory] Loaded ${charDef.name}: ${imgW}x${imgH}, frame ${fW}x${fH}`);
+    } catch (err) {
+      console.warn(`[SpriteFactory] Failed to load ${charDef.name} (${charDef.sheet}):`, err);
     }
-  } catch {
-    console.warn('[SpriteFactory] Character spritesheet not loaded — using placeholders');
   }
 
-  // Load monster/priest frames
-  for (const [enemyType, spriteInfo] of Object.entries(ENEMY_SPRITE_MAP)) {
+  // Load monster/priest frames (unchanged)
+  for (const [_enemyType, spriteInfo] of Object.entries(ENEMY_SPRITE_MAP)) {
     const cacheKey = `${spriteInfo.folder}`;
     if (monsterTextureCache.has(cacheKey)) continue;
 
@@ -127,12 +198,12 @@ export async function initSpriteAssets(): Promise<void> {
 
 /**
  * Get character preview textures for the selection screen.
- * Returns the first frame of each character.
+ * Returns the first idle frame of each character.
  */
 export function getCharacterPreviewTextures(): (Texture | null)[] {
   return CHARACTER_DEFS.map((def) => {
-    const frames = characterTextureCache.get(`char_${def.col}`);
-    return frames?.[0] ?? null;
+    const anims = characterAnimCache.get(def.key);
+    return anims?.idle?.[0] ?? null;
   });
 }
 
@@ -141,24 +212,47 @@ export function getCharacterPreviewTextures(): (Texture | null)[] {
 export function createPlayerSprite(characterIndex?: number): GameSprite {
   const container = new Container();
   const charIdx = characterIndex ?? 0;
-  const frames = characterTextureCache.get(`char_${charIdx}`);
+  const charDef = CHARACTER_DEFS[charIdx] ?? CHARACTER_DEFS[0];
+  const anims = characterAnimCache.get(charDef.key);
 
-  if (frames && frames.length > 0) {
-    // Real sprite from asset pack
-    const anim = new AnimatedSprite(frames);
+  if (anims && anims.idle.length > 0) {
+    // Glow ring behind the character for visibility
+    const glow = new Graphics();
+    glow.circle(0, 0, TILE_SIZE * 0.6);
+    glow.fill({ color: charDef.glowColor, alpha: 0.2 });
+    glow.circle(0, 0, TILE_SIZE * 0.4);
+    glow.fill({ color: charDef.glowColor, alpha: 0.15 });
+    glow.label = 'glow';
+    container.addChild(glow);
+
+    // Animated sprite from the idle row
+    const anim = new AnimatedSprite(anims.idle);
     anim.animationSpeed = 0.1;
     anim.anchor.set(0.5);
-    anim.scale.set(2); // 16px → 32px
+    // Scale sprite to roughly 1.5 tiles for visibility
+    const targetSize = TILE_SIZE * 1.5;
+    const scale = targetSize / Math.max(charDef.frameW, charDef.frameH);
+    anim.scale.set(scale);
     anim.play();
     container.addChild(anim);
 
     let currentAnim: AnimationState = 'idle';
+    const baseScale = scale;
 
     return {
       container,
       setAnimation: (state) => {
         if (state === currentAnim) return;
         currentAnim = state;
+        const targetFrames =
+          state === 'walk' ? anims.walk :
+          state === 'attack' ? anims.attack :
+          anims.idle;
+
+        if (targetFrames && targetFrames.length > 0) {
+          anim.textures = targetFrames;
+        }
+
         if (state === 'walk') {
           anim.animationSpeed = 0.15;
           anim.play();
@@ -166,29 +260,31 @@ export function createPlayerSprite(characterIndex?: number): GameSprite {
           anim.animationSpeed = 0.25;
           anim.play();
         } else {
-          // idle — slow animation
           anim.animationSpeed = 0.06;
           anim.play();
         }
       },
-      setFlipX: (flip) => { anim.scale.x = flip ? -2 : 2; },
-      setAlpha: (a) => { anim.alpha = a; },
+      setFlipX: (flip) => { anim.scale.x = flip ? -baseScale : baseScale; },
+      setAlpha: (a) => { anim.alpha = a; glow.alpha = a * 0.3; },
       destroy: () => container.destroy({ children: true }),
       isPlaceholder: false,
     };
   }
 
-  // Placeholder: Cyan circle with inner diamond
+  // Placeholder: Bright cyan circle with glow
   const g = new Graphics();
-  // Body
-  g.circle(0, 0, TILE_SIZE * 0.35);
-  g.fill({ color: PLACEHOLDER_COLORS.player });
-  // Highlight
-  g.circle(-3, -4, TILE_SIZE * 0.1);
-  g.fill({ color: 0xffffff, alpha: 0.5 });
   // Glow ring
+  g.circle(0, 0, TILE_SIZE * 0.7);
+  g.fill({ color: charDef.glowColor, alpha: 0.2 });
+  // Body
   g.circle(0, 0, TILE_SIZE * 0.45);
-  g.stroke({ color: PLACEHOLDER_COLORS.player, width: 1, alpha: 0.3 });
+  g.fill({ color: charDef.glowColor });
+  // Highlight
+  g.circle(-3, -4, TILE_SIZE * 0.12);
+  g.fill({ color: 0xffffff, alpha: 0.6 });
+  // Outer ring
+  g.circle(0, 0, TILE_SIZE * 0.55);
+  g.stroke({ color: charDef.glowColor, width: 2, alpha: 0.5 });
   container.addChild(g);
 
   return {
@@ -201,22 +297,90 @@ export function createPlayerSprite(characterIndex?: number): GameSprite {
   };
 }
 
-// ── Enemy Sprite ─────────────────────────────────────────────────────
+// ── Character-based Enemy Sprite ─────────────────────────────────────
+// Creates an enemy from one of the remaining character sprite sheets
+
+export function createCharacterEnemySprite(characterIndex: number): GameSprite {
+  const container = new Container();
+  const charDef = CHARACTER_DEFS[characterIndex] ?? CHARACTER_DEFS[0];
+  const anims = characterAnimCache.get(charDef.key);
+
+  if (anims && anims.idle.length > 0) {
+    const anim = new AnimatedSprite(anims.idle);
+    anim.animationSpeed = 0.08;
+    anim.anchor.set(0.5);
+    const targetSize = TILE_SIZE * 1.3;
+    const scale = targetSize / Math.max(charDef.frameW, charDef.frameH);
+    anim.scale.set(scale);
+    anim.play();
+    // Slight red tint to distinguish enemies
+    anim.tint = 0xff8888;
+    container.addChild(anim);
+
+    // Health bar
+    const hpBg = new Graphics();
+    hpBg.rect(-14, -TILE_SIZE * 0.8, 28, 5);
+    hpBg.fill({ color: 0x111111 });
+    const hpFill = new Graphics();
+    hpFill.rect(-14, -TILE_SIZE * 0.8, 28, 5);
+    hpFill.fill({ color: 0xff4444 });
+    hpFill.label = 'hpFill';
+    container.addChild(hpBg);
+    container.addChild(hpFill);
+
+    let currentAnim: AnimationState = 'idle';
+    const baseScale = scale;
+
+    return {
+      container,
+      setAnimation: (state) => {
+        if (state === currentAnim) return;
+        currentAnim = state;
+        const targetFrames =
+          state === 'walk' ? anims.walk :
+          state === 'attack' ? anims.attack :
+          anims.idle;
+        if (targetFrames && targetFrames.length > 0) {
+          anim.textures = targetFrames;
+        }
+        if (state === 'walk') {
+          anim.animationSpeed = 0.12;
+          anim.play();
+        } else if (state === 'attack') {
+          anim.animationSpeed = 0.2;
+          anim.play();
+        } else if (state === 'death') {
+          anim.stop();
+          container.alpha = 0.5;
+        } else {
+          anim.animationSpeed = 0.08;
+          anim.play();
+        }
+      },
+      setFlipX: (flip) => { anim.scale.x = flip ? -baseScale : baseScale; },
+      setAlpha: (a) => { container.alpha = a; },
+      destroy: () => container.destroy({ children: true }),
+      isPlaceholder: false,
+    };
+  }
+
+  // Fallback placeholder
+  return createEnemySprite(EnemyType.GOBLIN);
+}
+
+// ── Enemy Sprite (original system, kept as fallback) ─────────────────
 
 const ENEMY_SHAPES: Record<string, (g: Graphics, color: number) => void> = {
   [EnemyType.SLIME]: (g, c) => {
-    // Jelly blob shape
     g.ellipse(0, 4, TILE_SIZE * 0.35, TILE_SIZE * 0.25);
     g.fill({ color: c });
     g.circle(0, 0, TILE_SIZE * 0.28);
     g.fill({ color: c });
-    // Eyes
     g.circle(-5, -2, 3);
     g.circle(5, -2, 3);
     g.fill({ color: 0x000000 });
   },
   [EnemyType.BAT]: (g, c) => {
-    // Wings + body
     g.ellipse(-12, -4, 10, 6);
     g.ellipse(12, -4, 10, 6);
     g.fill({ color: c });
@@ -226,76 +390,57 @@ const ENEMY_SHAPES: Record<string, (g: Graphics, color: number) => void> = {
     g.fill({ color: c });
   },
   [EnemyType.INQUISITOR]: (g, c) => {
-    // Robed figure
     g.rect(-8, -6, 16, 20);
     g.fill({ color: c });
-    // Hood
     g.circle(0, -10, 8);
     g.fill({ color: c, alpha: 0.9 });
-    // Eyes (glowing)
     g.circle(-3, -10, 2);
     g.circle(3, -10, 2);
     g.fill({ color: 0xff4444 });
   },
   [EnemyType.LEASHED_GUARD]: (g, c) => {
-    // Shield + body
     g.rect(-9, -10, 18, 22);
     g.fill({ color: c });
-    // Shield
     g.rect(-7, -6, 8, 12);
     g.fill({ color: 0x888888 });
-    // Helm
     g.rect(-7, -12, 14, 8);
     g.fill({ color: c, alpha: 0.8 });
   },
   [EnemyType.ROYAL_KNIGHT]: (g, c) => {
-    // Full plate
     g.rect(-10, -12, 20, 26);
     g.fill({ color: c });
-    // Cape
     g.poly([-10, -8, -16, 12, -8, 12]);
     g.fill({ color: 0xff4444 });
-    // Visor
     g.rect(-7, -10, 14, 6);
     g.fill({ color: 0x000000, alpha: 0.6 });
   },
   [EnemyType.ASSASSIN]: (g, c) => {
-    // Slim hooded figure
     g.poly([0, -14, 8, -6, 6, 12, -6, 12, -8, -6]);
     g.fill({ color: c });
-    // Mask
     g.rect(-5, -10, 10, 6);
     g.fill({ color: 0x333333 });
-    // Eyes
     g.rect(-4, -8, 3, 2);
     g.rect(1, -8, 3, 2);
     g.fill({ color: 0xff2222 });
   },
   [EnemyType.GOBLIN]: (g, c) => {
-    // Small stocky body
     g.circle(0, 2, TILE_SIZE * 0.28);
     g.fill({ color: c });
-    // Head (bigger than body)
     g.circle(0, -6, TILE_SIZE * 0.22);
     g.fill({ color: c });
-    // Ears
     g.poly([-10, -8, -6, -2, -4, -10]);
     g.fill({ color: c });
     g.poly([10, -8, 6, -2, 4, -10]);
     g.fill({ color: c });
-    // Eyes (angry)
     g.circle(-4, -7, 3);
     g.circle(4, -7, 3);
     g.fill({ color: 0xffff00 });
   },
   [EnemyType.ARCHER]: (g, c) => {
-    // Standing figure with bow
     g.rect(-6, -10, 12, 22);
     g.fill({ color: c });
-    // Bow
     g.arc(10, 0, 8, -Math.PI * 0.5, Math.PI * 0.5);
     g.stroke({ color: 0x8B4513, width: 2 });
-    // Arrow
     g.rect(4, -1, 10, 2);
     g.fill({ color: 0x8B4513 });
     g.poly([14, -3, 18, 0, 14, 3]);
@@ -315,15 +460,13 @@ export function createEnemySprite(
   const frames = cacheKey ? monsterTextureCache.get(cacheKey) : undefined;
 
   if (frames && frames.length > 0) {
-    // Real animated sprite
     const anim = new AnimatedSprite(frames);
     anim.animationSpeed = 0.08;
     anim.anchor.set(0.5);
-    anim.scale.set(2); // 16px → 32px
+    anim.scale.set(2);
     anim.play();
     container.addChild(anim);
 
-    // Health bar above sprite
     const hpBg = new Graphics();
     hpBg.rect(-12, -20, 24, 4);
     hpBg.fill({ color: 0x111111 });
@@ -358,7 +501,7 @@ export function createEnemySprite(
     };
   }
 
-  // Placeholder fallback (same as before)
+  // Placeholder fallback
   const color = PLACEHOLDER_COLORS[(enemyType as unknown) as keyof typeof PLACEHOLDER_COLORS] ?? 0xffffff;
   const g = new Graphics();
   const drawFn = ENEMY_SHAPES[enemyType];
@@ -369,7 +512,6 @@ export function createEnemySprite(
     g.fill({ color });
   }
 
-  // Health bar above sprite
   const hpBg = new Graphics();
   hpBg.rect(-12, -20, 24, 4);
   hpBg.fill({ color: 0x111111 });
@@ -383,8 +525,6 @@ export function createEnemySprite(
   container.addChild(hpFill);
 
   let _anim: ReturnType<typeof setInterval> | null = null;
-
-  // Idle bob animation for placeholder
   let _t = Math.random() * Math.PI * 2;
   const tick = () => {
     _t += 0.05;
@@ -418,6 +558,6 @@ export function updateHealthBar(container: Container, percent: number): void {
   if (!hpFill) return;
   hpFill.clear();
   const color = percent > 0.6 ? 0x44dd44 : percent > 0.3 ? 0xffaa00 : 0xff2222;
-  hpFill.rect(-12, -20, 24 * Math.max(0, percent), 4);
+  hpFill.rect(-14, -TILE_SIZE * 0.8, 28 * Math.max(0, percent), 5);
   hpFill.fill({ color });
 }

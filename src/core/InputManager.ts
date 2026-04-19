@@ -4,8 +4,11 @@
 
 export interface InputState {
   keys: Set<string>;
+  codes: Set<string>;
   keysJustPressed: Set<string>;
+  codesJustPressed: Set<string>;
   keysJustReleased: Set<string>;
+  codesJustReleased: Set<string>;
   mouse: {
     x: number;
     y: number;
@@ -20,10 +23,14 @@ export interface InputState {
 
 export class InputManager {
   private static instance: InputManager;
+  private initCount = 0;
 
   private keysDown = new Set<string>();
   private keysPressed = new Set<string>();
   private keysReleased = new Set<string>();
+  private codesDown = new Set<string>();
+  private codesPressed = new Set<string>();
+  private codesReleased = new Set<string>();
 
   private mouseX = 0;
   private mouseY = 0;
@@ -59,6 +66,9 @@ export class InputManager {
 
   /** Attach event listeners to the window */
   init(): void {
+    this.initCount += 1;
+    if (this.initCount > 1) return;
+
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
     window.addEventListener('mousemove', this.boundMouseMove);
@@ -69,18 +79,35 @@ export class InputManager {
 
   /** Detach event listeners */
   destroy(): void {
+    if (this.initCount === 0) return;
+    this.initCount -= 1;
+    if (this.initCount > 0) return;
+
     window.removeEventListener('keydown', this.boundKeyDown);
     window.removeEventListener('keyup', this.boundKeyUp);
     window.removeEventListener('mousemove', this.boundMouseMove);
     window.removeEventListener('mousedown', this.boundMouseDown);
     window.removeEventListener('mouseup', this.boundMouseUp);
     window.removeEventListener('contextmenu', this.boundContextMenu);
+
+    this.keysDown.clear();
+    this.keysPressed.clear();
+    this.keysReleased.clear();
+    this.codesDown.clear();
+    this.codesPressed.clear();
+    this.codesReleased.clear();
+    this.mouseLeftDown = false;
+    this.mouseRightDown = false;
+    this.mouseLeftJustPressed = false;
+    this.mouseRightJustPressed = false;
   }
 
   /** Call at the end of each frame to clear "just pressed/released" state */
   endFrame(): void {
     this.keysPressed.clear();
     this.keysReleased.clear();
+    this.codesPressed.clear();
+    this.codesReleased.clear();
     this.mouseLeftJustPressed = false;
     this.mouseRightJustPressed = false;
   }
@@ -100,15 +127,30 @@ export class InputManager {
     return this.keysReleased.has(key.toLowerCase());
   }
 
+  /** Check if a keyboard code is currently held down */
+  isCodeDown(code: string): boolean {
+    return this.codesDown.has(code);
+  }
+
+  /** Check if a keyboard code was just pressed this frame */
+  isCodeJustPressed(code: string): boolean {
+    return this.codesPressed.has(code);
+  }
+
+  /** Check if a keyboard code was just released this frame */
+  isCodeJustReleased(code: string): boolean {
+    return this.codesReleased.has(code);
+  }
+
   /** Get current movement vector from WASD/Arrow keys */
   getMovementVector(): { x: number; y: number } {
     let x = 0;
     let y = 0;
 
-    if (this.isKeyDown('w') || this.isKeyDown('arrowup')) y -= 1;
-    if (this.isKeyDown('s') || this.isKeyDown('arrowdown')) y += 1;
-    if (this.isKeyDown('a') || this.isKeyDown('arrowleft')) x -= 1;
-    if (this.isKeyDown('d') || this.isKeyDown('arrowright')) x += 1;
+    if (this.isCodeDown('KeyW') || this.isCodeDown('ArrowUp') || this.isKeyDown('w') || this.isKeyDown('arrowup')) y -= 1;
+    if (this.isCodeDown('KeyS') || this.isCodeDown('ArrowDown') || this.isKeyDown('s') || this.isKeyDown('arrowdown')) y += 1;
+    if (this.isCodeDown('KeyA') || this.isCodeDown('ArrowLeft') || this.isKeyDown('a') || this.isKeyDown('arrowleft')) x -= 1;
+    if (this.isCodeDown('KeyD') || this.isCodeDown('ArrowRight') || this.isKeyDown('d') || this.isKeyDown('arrowright')) x += 1;
 
     // Normalize diagonal movement
     if (x !== 0 && y !== 0) {
@@ -124,8 +166,11 @@ export class InputManager {
   getState(): InputState {
     return {
       keys: new Set(this.keysDown),
+      codes: new Set(this.codesDown),
       keysJustPressed: new Set(this.keysPressed),
+      codesJustPressed: new Set(this.codesPressed),
       keysJustReleased: new Set(this.keysReleased),
+      codesJustReleased: new Set(this.codesReleased),
       mouse: {
         x: this.mouseX,
         y: this.mouseY,
@@ -149,21 +194,29 @@ export class InputManager {
 
   private onKeyDown(e: KeyboardEvent): void {
     const key = e.key.toLowerCase();
+    const code = e.code;
     if (!this.keysDown.has(key)) {
       this.keysPressed.add(key);
     }
+    if (!this.codesDown.has(code)) {
+      this.codesPressed.add(code);
+    }
     this.keysDown.add(key);
+    this.codesDown.add(code);
 
     // Prevent browser scroll on arrow keys & space
-    if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(code) || ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' '].includes(key)) {
       e.preventDefault();
     }
   }
 
   private onKeyUp(e: KeyboardEvent): void {
     const key = e.key.toLowerCase();
+    const code = e.code;
     this.keysDown.delete(key);
     this.keysReleased.add(key);
+    this.codesDown.delete(code);
+    this.codesReleased.add(code);
   }
 
   private onMouseMove(e: MouseEvent): void {

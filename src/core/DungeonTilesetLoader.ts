@@ -9,7 +9,11 @@ import { Assets, Texture, Rectangle } from 'pixi.js';
 import { TileType } from '@utils/constants';
 
 const TILE_PX = 16; // Source tile size in the spritesheet
-const TILESET_PATH = 'assets/dungeon-pack/tileset.png';
+const TILESET_BASE_PATHS = [
+  'assets/dungeon-pack/tileset_v2.png',
+  'assets/dungeon-pack/tilese_v2.png',
+  'assets/dungeon-pack/tileset.png',
+] as const;
 
 // ── Tileset coordinate map ──────────────────────────────────────────
 // Each entry is [col, row] in the 10×10 grid (0-indexed)
@@ -87,20 +91,39 @@ const WALL_TILES = {
 
 let tilesetTexture: Texture | null = null;
 const textureCache = new Map<string, Texture>();
+let tilesetLoadRevision = 0;
+
+function getTilesetPathForLoad(basePath: string): string {
+  // During development, force-refresh tileset so replacing tileset.png is reflected immediately.
+  if (import.meta.env.DEV) {
+    return `${basePath}?v=${tilesetLoadRevision}`;
+  }
+  return basePath;
+}
 
 /**
  * Load the tileset spritesheet. Call once during game init.
  */
 export async function loadTileset(): Promise<boolean> {
-  try {
-    tilesetTexture = await Assets.load(TILESET_PATH) as Texture;
-    // Set nearest-neighbor scaling for crisp pixels
-    tilesetTexture.source.scaleMode = 'nearest';
-    return true;
-  } catch {
-    console.warn('[DungeonTilesetLoader] Tileset not found, using fallback colors');
-    return false;
+  tilesetLoadRevision += 1;
+  textureCache.clear();
+  tilesetTexture = null;
+
+  for (const basePath of TILESET_BASE_PATHS) {
+    try {
+      const loadPath = getTilesetPathForLoad(basePath);
+      tilesetTexture = await Assets.load(loadPath) as Texture;
+      // Set nearest-neighbor scaling for crisp pixels
+      tilesetTexture.source.scaleMode = 'nearest';
+      console.info(`[DungeonTilesetLoader] Loaded tileset: ${basePath}`);
+      return true;
+    } catch {
+      // Try next candidate
+    }
   }
+
+  console.warn('[DungeonTilesetLoader] Tileset not found, using fallback colors');
+  return false;
 }
 
 /**

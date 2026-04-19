@@ -2,13 +2,9 @@
 // CharacterSelectScreen — Pick your character before entering the dungeon
 // ========================
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useGameStore } from '@store/gameStore';
 import { CHARACTER_DEFS } from '@core/SpriteFactory';
-
-// Character preview: we extract sprites from the character spritesheet using CSS
-// The spritesheet (characters.png) is 112×64, with 7 columns × 4 rows of 16×16 frames
-// Each column = a different character class
 
 export function CharacterSelectScreen() {
   const setScreen = useGameStore((s) => s.setScreen);
@@ -39,33 +35,32 @@ export function CharacterSelectScreen() {
       <div className="character-select-content">
         <h1 className="character-select-title">Choose Your Champion</h1>
         <p className="character-select-subtitle">
-          Each warrior walks a different path through the dungeon
+          Each warrior walks a different path through the dungeon. The rest become your enemies!
         </p>
 
         {/* Character Grid */}
         <div className="character-grid">
           {CHARACTER_DEFS.map((charDef, index) => (
             <div
-              key={charDef.name}
+              key={charDef.key}
               className={`character-card ${selected === index ? 'character-card-selected' : ''}`}
               onClick={() => handleSelect(index)}
               style={{
                 '--char-color': charDef.color,
               } as React.CSSProperties}
             >
-              {/* Preview using CSS sprite from the spritesheet */}
+              {/* Preview using the character sprite sheet */}
               <div className="character-preview">
                 <div
                   className="character-sprite"
                   style={{
-                    width: 16,
-                    height: 16,
-                    backgroundImage: `url(/assets/dungeon-pack/characters.png)`,
-                    backgroundPosition: `-${charDef.col * 16}px 0px`,
-                    backgroundSize: '112px 64px',
+                    width: 64,
+                    height: 64,
+                    backgroundImage: `url(${charDef.sheet})`,
+                    backgroundPosition: '0px 0px',
+                    backgroundSize: `${charDef.cols * 64}px auto`,
                     backgroundRepeat: 'no-repeat',
                     imageRendering: 'pixelated',
-                    transform: 'scale(3)',
                   }}
                 />
               </div>

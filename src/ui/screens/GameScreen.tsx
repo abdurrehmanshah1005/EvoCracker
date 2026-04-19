@@ -1,5 +1,6 @@
 // ========================
-// GameScreen — REWRITTEN with working combat, enemy AI, and clear visuals
+// GameScreen — REWRITTEN with working combat, enemy AI, clear visuals,
+// and fixed React StrictMode support
 // ========================
 
 import { useEffect, useRef, useCallback, useState } from 'react';
@@ -12,7 +13,7 @@ import { generateDungeon, getBiomeForFloor } from '@game/world/DungeonGenerator'
 import { TILE_SIZE, TileType, GRID_COLS, GRID_ROWS, ALGORITHM_COLORS, AlertState, EnemyType } from '@utils/constants';
 import { AIAnalyticsPanel } from '@ui/analytics/AIAnalyticsPanel';
 import { PlayerHUD } from '@ui/hud/PlayerHUD';
-import { createPlayerSprite, initSpriteAssets } from '@core/SpriteFactory';
+import { createPlayerSprite, initSpriteAssets, CHARACTER_DEFS, createCharacterEnemySprite } from '@core/SpriteFactory';
 import { createEnemy, getEnemyTypesForFloor } from '@game/entities/enemies/Archetypes';
 import { updateVision } from '@game/systems/VisionSystem';
 import { createDefaultItemLoadout, updateItems, type PlayerState } from '@game/entities/items/ItemSystem';
@@ -22,25 +23,23 @@ import type { EnemyBase } from '@game/entities/enemies/EnemyBase';
 import { randomInt } from '@utils/random';
 import { loadTileset, isTilesetLoaded, getTileTexture, getWallTexture, loadItemAnimations } from '@core/DungeonTilesetLoader';
 
-// ===== MUCH BETTER TILE COLORS — High contrast ==========================
+// ===== TILE COLORS — High contrast ==========================
 const TILE_COLORS: Record<number, number> = {
-  [TileType.FLOOR_STONE]: 0x3a3a52,   // Visible grey-purple floor
-  [TileType.WALL]:        0x111118,    // Very dark walls
-  [TileType.FLOOR_MUD]:   0x5a4420,    // Clearly brown mud
-  [TileType.FLOOR_WATER]: 0x1a4070,    // Blue water
-  [TileType.FLOOR_TRAP]:  0x6a1818,    // Red-tinted trap
-  [TileType.DOOR]:        0x6a5a30,    // Gold-ish door
-  [TileType.STAIRS_DOWN]: 0x20aa50,    // Bright green exit
-  [TileType.STAIRS_UP]:   0x3050aa,    // Blue entry
-  [TileType.TREASURE]:    0xaa8820,    // Gold treasure
-  [TileType.FLOOR_GRASS]: 0x2a5a2a,    // Green grass
-  [TileType.FLOOR_SAND]:  0x6a6a30,    // Sandy yellow
-  [TileType.BRIDGE]:      0x5a3a1a,    // Brown wood
+  [TileType.FLOOR_STONE]: 0x3a3a52,
+  [TileType.WALL]:        0x111118,
+  [TileType.FLOOR_MUD]:   0x5a4420,
+  [TileType.FLOOR_WATER]: 0x1a4070,
+  [TileType.FLOOR_TRAP]:  0x6a1818,
+  [TileType.DOOR]:        0x6a5a30,
+  [TileType.STAIRS_DOWN]: 0x20aa50,
+  [TileType.STAIRS_UP]:   0x3050aa,
+  [TileType.TREASURE]:    0xaa8820,
+  [TileType.FLOOR_GRASS]: 0x2a5a2a,
+  [TileType.FLOOR_SAND]:  0x6a6a30,
+  [TileType.BRIDGE]:      0x5a3a1a,
 };
 
-// Wall top face for 3D depth
 const WALL_TOP = 0x1a1a28;
-// Floor border for grid visibility
 const FLOOR_GRID_LINE = 0x2a2a40;
 
 export function GameScreen() {
@@ -49,8 +48,12 @@ export function GameScreen() {
   const cameraRef = useRef<Camera | null>(null);
   const gridRef = useRef<Grid | null>(null);
   const enemiesRef = useRef<EnemyBase[]>([]);
+  const fallbackKeysDownRef = useRef<Set<string>>(new Set());
+  const fallbackKeysPressedRef = useRef<Set<string>>(new Set());
+  const cleanupFnRef = useRef<(() => void) | null>(null);
 
   const [isLoaded, setIsLoaded] = useState(false);
+  const isLoadedRef = useRef(false);
   const [notification, setNotification] = useState<string | null>(null);
   const notifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -62,7 +65,7 @@ export function GameScreen() {
     health: 100, maxHealth: 100,
     attackCooldown: 0,
     attackDamage: 20,
-    attackRange: 2, // tiles
+    attackRange: 2,
     items: createDefaultItemLoadout(),
     kills: 0,
     state: {
@@ -73,15 +76,30 @@ export function GameScreen() {
     } as PlayerState,
   });
 
-  // Attack visual ref
   const attackVisualRef = useRef<Graphics | null>(null);
 
-  const {
-    currentFloor, analyticsEnabled, toggleAnalytics,
-    setDungeonData, setFps, setEnemyAnalytics, setPlayerHealth, addScore,
-    showPaths, showFOV,
-    setScreen, selectedCharacter,
-  } = useGameStore();
+  // Use individual selectors to avoid full-store subscription re-renders
+  const currentFloor = useGameStore((s) => s.currentFloor);
+  const analyticsEnabled = useGameStore((s) => s.analyticsEnabled);
+  const toggleAnalytics = useGameStore((s) => s.toggleAnalytics);
+  const setDungeonData = useGameStore((s) => s.setDungeonData);
+  const setFps = useGameStore((s) => s.setFps);
+  const setEnemyAnalytics = useGameStore((s) => s.setEnemyAnalytics);
+  const setPlayerHealth = useGameStore((s) => s.setPlayerHealth);
+  const addScore = useGameStore((s) => s.addScore);
+  const setScreen = useGameStore((s) => s.setScreen);
+  const selectedCharacter = useGameStore((s) => s.selectedCharacter);
+
+  // Use refs for values used in the game loop so they don't cause re-init
+  const showPathsRef = useRef(useGameStore.getState().showPaths);
+  const showFOVRef = useRef(useGameStore.getState().showFOV);
+  useEffect(() => {
+    const unsub = useGameStore.subscribe((s) => {
+      showPathsRef.current = s.showPaths;
+      showFOVRef.current = s.showFOV;
+    });
+    return unsub;
+  }, []);
 
   const showNotification = useCallback((msg: string) => {
     setNotification(msg);
@@ -90,7 +108,19 @@ export function GameScreen() {
   }, []);
 
   const initGame = useCallback(async () => {
-    if (!canvasRef.current || appRef.current) return;
+    if (!canvasRef.current) return;
+
+    // ── Clean up any previous instance (React StrictMode fix) ────
+    if (appRef.current) {
+      try { appRef.current.destroy(true); } catch { /* already destroyed */ }
+      appRef.current = null;
+    }
+    // Clear canvas children
+    if (canvasRef.current) {
+      while (canvasRef.current.firstChild) {
+        canvasRef.current.removeChild(canvasRef.current.firstChild);
+      }
+    }
 
     const app = new Application();
     await app.init({
@@ -122,20 +152,34 @@ export function GameScreen() {
     worldContainer.sortableChildren = true;
     app.stage.addChild(worldContainer);
 
-    // Overlay for debug drawings (paths, FOV, attack)
     const debugOverlay = new Graphics();
     debugOverlay.zIndex = 50;
     worldContainer.addChild(debugOverlay);
 
-    // Attack visual layer
     const attackLayer = new Graphics();
     attackLayer.zIndex = 45;
     worldContainer.addChild(attackLayer);
     attackVisualRef.current = attackLayer;
 
+    // Direct keyboard fallback
+    const onFallbackKeyDown = (e: KeyboardEvent) => {
+      const code = e.code;
+      const down = fallbackKeysDownRef.current;
+      if (!down.has(code)) fallbackKeysPressedRef.current.add(code);
+      down.add(code);
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Backquote', 'Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(code)) {
+        e.preventDefault();
+      }
+    };
+    const onFallbackKeyUp = (e: KeyboardEvent) => {
+      fallbackKeysDownRef.current.delete(e.code);
+    };
+    window.addEventListener('keydown', onFallbackKeyDown);
+    window.addEventListener('keyup', onFallbackKeyUp);
+
     // ── Generate dungeon ──────────────────────────────────────────
     const biome = getBiomeForFloor(currentFloor);
-    const dungeon = generateDungeon(GRID_COLS, GRID_ROWS, currentFloor, biome);
+    const dungeon = await generateDungeon(GRID_COLS, GRID_ROWS, currentFloor, biome);
     setDungeonData(dungeon);
     camera.setWorldBounds(dungeon.width * TILE_SIZE, dungeon.height * TILE_SIZE);
 
@@ -174,11 +218,37 @@ export function GameScreen() {
     camera.snapTo(playerRef.current.pixelX, playerRef.current.pixelY);
 
     // ── Spawn enemies ─────────────────────────────────────────────
+    // Use remaining character sprites as enemies + original archetypes
+    const otherCharIndices = CHARACTER_DEFS
+      .map((_, i) => i)
+      .filter((i) => i !== selectedCharacter);
+
     const enemyTypes = getEnemyTypesForFloor(currentFloor);
     const maxEnemies = Math.min(dungeon.enemySpawnPoints.length, 6 + currentFloor * 3);
     const spawnPts = dungeon.enemySpawnPoints.slice(0, maxEnemies);
 
-    for (const pt of spawnPts) {
+    // Spawn character-based enemies first (one per remaining character)
+    let spawnIdx = 0;
+    for (let ci = 0; ci < otherCharIndices.length && spawnIdx < spawnPts.length; ci++, spawnIdx++) {
+      const pt = spawnPts[spawnIdx];
+      const charIndex = otherCharIndices[ci];
+      const type = enemyTypes[randomInt(0, enemyTypes.length - 1)];
+      const genome = createRandomGenome(Math.max(0, currentFloor - 1));
+      const enemy = createEnemy(type, pt.x, pt.y, genome);
+      // Replace the enemy's sprite with a character sprite
+      enemy.container.removeChildren();
+      const charSprite = createCharacterEnemySprite(charIndex);
+      for (const child of charSprite.container.children) {
+        enemy.container.addChild(child);
+      }
+      enemy.container.zIndex = 10;
+      worldContainer.addChild(enemy.container);
+      enemiesRef.current.push(enemy);
+    }
+
+    // Spawn remaining enemies as normal archetypes
+    for (; spawnIdx < spawnPts.length; spawnIdx++) {
+      const pt = spawnPts[spawnIdx];
       const type = enemyTypes[randomInt(0, enemyTypes.length - 1)];
       const genome = createRandomGenome(Math.max(0, currentFloor - 1));
       const enemy = createEnemy(type, pt.x, pt.y, genome);
@@ -196,11 +266,12 @@ export function GameScreen() {
       showNotification(d.msg);
     });
 
+    isLoadedRef.current = true;
     setIsLoaded(true);
 
     // ── Staggered path timers per enemy ───────────────────────────
     const pathTimers = new Map<string, number>();
-    const PATH_INTERVAL = 0.6; // seconds between repath for each enemy
+    const PATH_INTERVAL = 0.6;
 
     let fpsCounter = 0;
     let fpsTimer = 0;
@@ -211,10 +282,9 @@ export function GameScreen() {
     // GAME LOOP
     // ══════════════════════════════════════════════════════════════
     app.ticker.add((ticker) => {
-      const dt = ticker.deltaTime / 60; // seconds
+      const dt = ticker.deltaTime / 60;
       fpsCounter++; fpsTimer += dt; analyticsTimer += dt;
 
-      // FPS
       if (fpsTimer >= 1) {
         setFps(Math.round(fpsCounter / fpsTimer));
         fpsCounter = 0; fpsTimer = 0;
@@ -223,27 +293,49 @@ export function GameScreen() {
       // ── PLAYER MOVEMENT ───────────────────────────────────────
       const p = playerRef.current;
       const moveVec = input.getMovementVector();
-      const moveSpeed = (p.state.isInvisible ? 200 : 160) * dt;
+      let moveX = moveVec.x;
+      let moveY = moveVec.y;
+      if (moveX === 0 && moveY === 0) {
+        const down = fallbackKeysDownRef.current;
+        if (down.has('KeyW') || down.has('ArrowUp')) moveY -= 1;
+        if (down.has('KeyS') || down.has('ArrowDown')) moveY += 1;
+        if (down.has('KeyA') || down.has('ArrowLeft')) moveX -= 1;
+        if (down.has('KeyD') || down.has('ArrowRight')) moveX += 1;
+        if (moveX !== 0 && moveY !== 0) {
+          const len = Math.sqrt(moveX * moveX + moveY * moveY);
+          moveX /= len;
+          moveY /= len;
+        }
+      }
+      const dtSeconds = ticker.deltaMS / 1000;
+      const moveSpeed = (p.state.isInvisible ? 200 : 160) * dtSeconds;
 
-      if (moveVec.x !== 0 || moveVec.y !== 0) {
-        const newX = p.pixelX + moveVec.x * moveSpeed;
-        const newY = p.pixelY + moveVec.y * moveSpeed;
-        const ntx = Math.floor(newX / TILE_SIZE);
-        const nty = Math.floor(newY / TILE_SIZE);
-        const node = grid.getNode(ntx, nty);
+      if (moveX !== 0 || moveY !== 0) {
+        const nextX = p.pixelX + moveX * moveSpeed;
+        const nextY = p.pixelY + moveY * moveSpeed;
 
-        if (node && node.walkable) {
-          p.pixelX = newX;
-          p.pixelY = newY;
-          p.tileX = ntx;
-          p.tileY = nty;
-          p.state.tileX = ntx;
-          p.state.tileY = nty;
+        const xTile = Math.floor(nextX / TILE_SIZE);
+        const yTileForX = Math.floor(p.pixelY / TILE_SIZE);
+        const xNode = grid.getNode(xTile, yTileForX);
+        if (xNode && xNode.walkable) {
+          p.pixelX = nextX;
         }
 
+        const xTileForY = Math.floor(p.pixelX / TILE_SIZE);
+        const yTile = Math.floor(nextY / TILE_SIZE);
+        const yNode = grid.getNode(xTileForY, yTile);
+        if (yNode && yNode.walkable) {
+          p.pixelY = nextY;
+        }
+
+        p.tileX = Math.floor(p.pixelX / TILE_SIZE);
+        p.tileY = Math.floor(p.pixelY / TILE_SIZE);
+        p.state.tileX = p.tileX;
+        p.state.tileY = p.tileY;
+
         p.sprite?.setAnimation('walk');
-        if (moveVec.x < 0) p.sprite?.setFlipX(true);
-        if (moveVec.x > 0) p.sprite?.setFlipX(false);
+        if (moveX < 0) p.sprite?.setFlipX(true);
+        if (moveX > 0) p.sprite?.setFlipX(false);
       } else {
         p.sprite?.setAnimation('idle');
       }
@@ -252,14 +344,22 @@ export function GameScreen() {
       p.sprite!.container.y = p.pixelY;
       p.sprite?.setAlpha(p.state.isInvisible ? 0.3 : 1);
 
-      // ── PLAYER ATTACK (E key or Space) ─────────────────────────
+      // ── Pulsing glow on player ─────────────────────────────────
+      const glowChild = p.sprite?.container.getChildByLabel('glow') as Graphics | null;
+      if (glowChild) {
+        const pulse = 0.8 + Math.sin(Date.now() * 0.004) * 0.2;
+        glowChild.scale.set(pulse);
+      }
+
+      // ── PLAYER ATTACK (Space) ──────────────────────────────────
       if (p.attackCooldown > 0) p.attackCooldown -= dt;
 
-      if ((input.isKeyJustPressed('e') || input.isKeyJustPressed(' ')) && p.attackCooldown <= 0) {
+      const fallbackPressed = fallbackKeysPressedRef.current;
+
+      if ((input.isCodeJustPressed('Space') || fallbackPressed.has('Space')) && p.attackCooldown <= 0) {
         p.attackCooldown = 0.4;
         p.sprite?.setAnimation('attack');
 
-        // Find enemies in attack range
         let hitCount = 0;
         for (const enemy of enemiesRef.current) {
           if (!enemy.isAlive) continue;
@@ -277,7 +377,6 @@ export function GameScreen() {
           }
         }
 
-        // Attack visual — circle slash
         attackVisualTimer = 0.2;
         attackLayer.clear();
         attackLayer.circle(p.pixelX, p.pixelY, p.attackRange * TILE_SIZE);
@@ -286,7 +385,6 @@ export function GameScreen() {
         attackLayer.fill({ color: 0xffffff, alpha: 0.4 });
       }
 
-      // Fade attack visual
       if (attackVisualTimer > 0) {
         attackVisualTimer -= dt;
         if (attackVisualTimer <= 0) attackLayer.clear();
@@ -294,13 +392,13 @@ export function GameScreen() {
 
       // ── ITEMS ──────────────────────────────────────────────────
       updateItems(p.items, p.state, dt);
-      for (let i = 0; i < 4; i++) {
-        if (input.isKeyJustPressed(String(i + 1))) {
-          const item = p.items[i];
-          if (item && item.currentCooldown <= 0) {
-            item.use(p.state, enemiesRef.current, grid);
-            item.currentCooldown = item.cooldown;
-          }
+      const itemCodes = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
+      for (let i = 0; i < itemCodes.length; i++) {
+        if (!input.isCodeJustPressed(itemCodes[i]) && !fallbackPressed.has(itemCodes[i])) continue;
+        const item = p.items[i];
+        if (item && item.currentCooldown <= 0) {
+          item.use(p.state, enemiesRef.current, grid);
+          item.currentCooldown = item.cooldown;
         }
       }
 
@@ -314,7 +412,6 @@ export function GameScreen() {
       for (const enemy of enemiesRef.current) {
         if (!enemy.isAlive) continue;
 
-        // Staggered pathing
         let timer = pathTimers.get(enemy.id) ?? 0;
         timer -= dt;
         pathTimers.set(enemy.id, timer);
@@ -322,12 +419,10 @@ export function GameScreen() {
         if (timer <= 0) {
           pathTimers.set(enemy.id, PATH_INTERVAL + Math.random() * 0.3);
 
-          // Decide target based on alert state
           let targetX = enemy.homeX;
           let targetY = enemy.homeY;
 
           if (enemy.alertState === AlertState.CHASING || enemy.alertState === AlertState.ALERT) {
-            // Chase player or last-known position
             targetX = enemy.blackboard.lastKnownPlayerX >= 0
               ? enemy.blackboard.lastKnownPlayerX : p.tileX;
             targetY = enemy.blackboard.lastKnownPlayerY >= 0
@@ -343,7 +438,6 @@ export function GameScreen() {
             targetX = Math.max(1, Math.min(dungeon.width - 2, enemy.tileX + fdx * 4));
             targetY = Math.max(1, Math.min(dungeon.height - 2, enemy.tileY + fdy * 4));
           } else {
-            // IDLE — Random patrol near home
             if (!enemy.patrolTarget || (enemy.tileX === enemy.patrolTarget.x && enemy.tileY === enemy.patrolTarget.y)) {
               enemy.patrolTarget = enemy.getPatrolTarget(grid);
             }
@@ -356,7 +450,6 @@ export function GameScreen() {
           enemy.requestPath(grid, targetX, targetY);
         }
 
-        // Update enemy (moves along path, lerps position)
         enemy.update(dt, grid, p.tileX, p.tileY);
 
         // ── Enemy attacks player on contact ──────────────────────
@@ -371,7 +464,6 @@ export function GameScreen() {
             p.health = Math.max(0, p.health - dmg);
             setPlayerHealth(p.health);
 
-            // Damage flash on player
             p.sprite!.container.tint = 0xff4444;
             setTimeout(() => { p.sprite!.container.tint = 0xffffff; }, 200);
 
@@ -386,13 +478,11 @@ export function GameScreen() {
       // ── REMOVE DEAD ENEMIES ────────────────────────────────────
       enemiesRef.current = enemiesRef.current.filter((e) => e.isAlive);
 
-      // ── CHECK FLOOR COMPLETE (all enemies dead) ────────────────
-      if (isLoaded && enemiesRef.current.length === 0 && spawnPts.length > 0) {
+      // ── CHECK FLOOR COMPLETE ───────────────────────────────────
+      if (isLoadedRef.current && enemiesRef.current.length === 0 && spawnPts.length > 0) {
         showNotification(`✅ Floor ${dungeon.floor} cleared! Find the exit (green glow)`);
-        // Check if player is on exit
         if (p.tileX === dungeon.exitPoint.x && p.tileY === dungeon.exitPoint.y) {
           showNotification('🚪 Next floor!');
-          // In a real implementation you'd regenerate here
         }
       }
 
@@ -401,7 +491,6 @@ export function GameScreen() {
       if (playerTile === TileType.FLOOR_TRAP) {
         p.health = Math.max(0, p.health - 15 * dt);
         setPlayerHealth(Math.round(p.health));
-        // Stun nearby enemies too
         for (const enemy of enemiesRef.current) {
           if (enemy.tileX === p.tileX && enemy.tileY === p.tileY) {
             enemy.stun(1);
@@ -418,7 +507,7 @@ export function GameScreen() {
       }
 
       // ── DEBUG OVERLAYS ─────────────────────────────────────────
-      drawDebugOverlays(debugOverlay, enemiesRef.current, p.tileX, p.tileY, showPaths, showFOV);
+      drawDebugOverlays(debugOverlay, enemiesRef.current, p.tileX, p.tileY, showPathsRef.current, showFOVRef.current);
 
       // ── CAMERA ─────────────────────────────────────────────────
       camera.follow(p.pixelX, p.pixelY, dt);
@@ -429,10 +518,11 @@ export function GameScreen() {
       input.setWorldMouse(worldMouse.x, worldMouse.y);
 
       // ── HOTKEYS ────────────────────────────────────────────────
-      if (input.isKeyJustPressed('`')) toggleAnalytics();
+      if (input.isCodeJustPressed('Backquote') || fallbackPressed.has('Backquote')) toggleAnalytics();
       if (input.isKeyJustPressed('escape')) setScreen('mainMenu');
 
       input.endFrame();
+      fallbackKeysPressedRef.current.clear();
     });
 
     // ── Resize ────────────────────────────────────────────────────
@@ -442,19 +532,47 @@ export function GameScreen() {
     };
     window.addEventListener('resize', onResize);
 
-    return () => {
+    // Return cleanup function
+    const cleanup = () => {
       unsubNotif();
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('keydown', onFallbackKeyDown);
+      window.removeEventListener('keyup', onFallbackKeyUp);
       input.destroy();
-      app.destroy(true);
+      try { app.destroy(true); } catch { /* already destroyed */ }
       appRef.current = null;
       enemiesRef.current = [];
+      fallbackKeysDownRef.current.clear();
+      fallbackKeysPressedRef.current.clear();
+      isLoadedRef.current = false;
+      setIsLoaded(false);
     };
-  }, [currentFloor, setDungeonData, setFps, toggleAnalytics, setEnemyAnalytics, setPlayerHealth, showPaths, showFOV, showNotification, addScore, setScreen, selectedCharacter]);
 
+    return cleanup;
+  // Only re-init when floor or character changes
+  // Store action functions are stable references from Zustand
+  }, [currentFloor, selectedCharacter, setDungeonData, setFps, toggleAnalytics, setEnemyAnalytics, setPlayerHealth, showNotification, addScore, setScreen]);
+
+  // ── Effect: init game with proper StrictMode cleanup ────────────
   useEffect(() => {
-    const cleanup = initGame();
-    return () => { cleanup.then((fn) => fn?.()); };
+    let isCancelled = false;
+
+    initGame().then((cleanup) => {
+      if (isCancelled) {
+        // Component unmounted before init finished — clean up immediately
+        cleanup?.();
+      } else {
+        cleanupFnRef.current = cleanup ?? null;
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+      if (cleanupFnRef.current) {
+        cleanupFnRef.current();
+        cleanupFnRef.current = null;
+      }
+    };
   }, [initGame]);
 
   return (
@@ -480,7 +598,7 @@ export function GameScreen() {
           border: '1px solid rgba(200,168,80,0.15)',
         }}>
           <span style={{ color: '#44ddff' }}>WASD</span> Move &nbsp;
-          <span style={{ color: '#ff4466' }}>E/Space</span> Attack &nbsp;
+          <span style={{ color: '#ff4466' }}>Space</span> Attack &nbsp;
           <span style={{ color: '#ffd700' }}>1-4</span> Items &nbsp;
           <span style={{ color: '#aa66ff' }}>`</span> AI Panel
         </div>
@@ -497,7 +615,7 @@ export function GameScreen() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// TILEMAP RENDERER — Uses pixel-art tileset when available
+// TILEMAP RENDERER
 // ══════════════════════════════════════════════════════════════════════
 
 function renderTilemap(container: Container, tiles: number[][], w: number, h: number) {
@@ -508,7 +626,6 @@ function renderTilemap(container: Container, tiles: number[][], w: number, h: nu
   const useSpritesheet = isTilesetLoaded();
 
   if (useSpritesheet) {
-    // ── REAL SPRITE TILES ──────────────────────────────────────────
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const tile = tiles[y][x] as TileType;
@@ -531,7 +648,6 @@ function renderTilemap(container: Container, tiles: number[][], w: number, h: nu
           sprite.height = TILE_SIZE;
           tileContainer.addChild(sprite);
         } else {
-          // Fallback for unmapped tiles
           const g = new Graphics();
           const color = TILE_COLORS[tile] ?? 0x0a0a0a;
           g.rect(px, py, TILE_SIZE, TILE_SIZE);
@@ -541,7 +657,6 @@ function renderTilemap(container: Container, tiles: number[][], w: number, h: nu
       }
     }
   } else {
-    // ── FALLBACK: Graphics-based colored tiles ─────────────────────
     const g = new Graphics();
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
@@ -553,7 +668,6 @@ function renderTilemap(container: Container, tiles: number[][], w: number, h: nu
         g.rect(px, py, TILE_SIZE, TILE_SIZE);
         g.fill({ color });
 
-        // Wall 3D depth
         if (tile === TileType.WALL) {
           if (y + 1 < h && tiles[y + 1][x] !== TileType.WALL) {
             g.rect(px, py + TILE_SIZE - 4, TILE_SIZE, 4);
@@ -565,7 +679,6 @@ function renderTilemap(container: Container, tiles: number[][], w: number, h: nu
           }
         }
 
-        // Floor grid lines
         if (tile !== TileType.WALL) {
           g.rect(px, py, TILE_SIZE, 1);
           g.fill({ color: FLOOR_GRID_LINE, alpha: 0.4 });
@@ -573,7 +686,6 @@ function renderTilemap(container: Container, tiles: number[][], w: number, h: nu
           g.fill({ color: FLOOR_GRID_LINE, alpha: 0.4 });
         }
 
-        // Trap warning pattern
         if (tile === TileType.FLOOR_TRAP) {
           g.moveTo(px + 4, py + 4);
           g.lineTo(px + TILE_SIZE - 4, py + TILE_SIZE - 4);
@@ -583,7 +695,6 @@ function renderTilemap(container: Container, tiles: number[][], w: number, h: nu
           g.stroke({ color: 0xff2222, width: 2, alpha: 0.5 });
         }
 
-        // Water shimmer
         if (tile === TileType.FLOOR_WATER) {
           g.rect(px + 4, py + 12, TILE_SIZE - 8, 2);
           g.fill({ color: 0x3388cc, alpha: 0.4 });
@@ -591,7 +702,6 @@ function renderTilemap(container: Container, tiles: number[][], w: number, h: nu
           g.fill({ color: 0x3388cc, alpha: 0.3 });
         }
 
-        // Mud splotch
         if (tile === TileType.FLOOR_MUD) {
           g.circle(px + 10, py + 14, 4);
           g.fill({ color: 0x4a3410, alpha: 0.4 });
@@ -607,11 +717,10 @@ function renderTilemap(container: Container, tiles: number[][], w: number, h: nu
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// MARKERS — Exit, treasure, floor label (with pixel-art sprites)
+// MARKERS
 // ══════════════════════════════════════════════════════════════════════
 
-function renderMarkers(container: Container, dungeon: ReturnType<typeof generateDungeon>) {
-  // Exit — pulsing green glow + label
+function renderMarkers(container: Container, dungeon: Awaited<ReturnType<typeof generateDungeon>>) {
   const exit = new Graphics();
   exit.circle(dungeon.exitPoint.x * TILE_SIZE + 16, dungeon.exitPoint.y * TILE_SIZE + 16, 14);
   exit.fill({ color: 0x22ff66, alpha: 0.25 });
@@ -620,7 +729,6 @@ function renderMarkers(container: Container, dungeon: ReturnType<typeof generate
   exit.zIndex = 3;
   container.addChild(exit);
 
-  // Stairs text
   const exitLabel = new Text({
     text: 'EXIT',
     style: new TextStyle({ fontFamily: 'Press Start 2P', fontSize: 7, fill: 0x22ff66 }),
@@ -630,7 +738,6 @@ function renderMarkers(container: Container, dungeon: ReturnType<typeof generate
   exitLabel.zIndex = 20;
   container.addChild(exitLabel);
 
-  // Treasure — golden diamonds (kept as fallback; real chest sprites loaded async separately)
   for (const pt of dungeon.treasurePoints) {
     const gem = new Graphics();
     gem.star(pt.x * TILE_SIZE + 16, pt.y * TILE_SIZE + 16, 5, 6, 12);
@@ -639,7 +746,6 @@ function renderMarkers(container: Container, dungeon: ReturnType<typeof generate
     container.addChild(gem);
   }
 
-  // Floor label at spawn
   const style = new TextStyle({ fontFamily: 'Press Start 2P', fontSize: 9, fill: 0xc8a850 });
   const lbl = new Text({ text: `Floor ${dungeon.floor} — ${dungeon.biome.toUpperCase()}`, style });
   lbl.x = dungeon.spawnPoint.x * TILE_SIZE - 60;
@@ -649,7 +755,7 @@ function renderMarkers(container: Container, dungeon: ReturnType<typeof generate
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// DEBUG OVERLAYS — paths, FOV cones, alert indicators
+// DEBUG OVERLAYS
 // ══════════════════════════════════════════════════════════════════════
 
 function drawDebugOverlays(
@@ -667,7 +773,6 @@ function drawDebugOverlays(
 
     const algoColor = ALGORITHM_COLORS[enemy.getActiveAlgorithm()];
 
-    // Alert state indicator — floating colored dot above enemy
     const alertColors: Record<string, number> = {
       [AlertState.IDLE]: 0x44dd44,
       [AlertState.SUSPICIOUS]: 0xffaa00,
@@ -679,7 +784,6 @@ function drawDebugOverlays(
     g.circle(enemy.pixelX, enemy.pixelY - 22, 3);
     g.fill({ color: alertColor });
 
-    // Path trail
     if (showPaths && enemy.currentPath.length > 0) {
       const visiblePath = enemy.currentPath.slice(enemy.pathIndex);
       if (visiblePath.length > 0) {
@@ -689,14 +793,12 @@ function drawDebugOverlays(
         }
         g.stroke({ color: algoColor, width: 2, alpha: 0.5 });
 
-        // Endpoint marker
         const last = visiblePath[visiblePath.length - 1];
         g.circle(last.x * TILE_SIZE + TILE_SIZE / 2, last.y * TILE_SIZE + TILE_SIZE / 2, 4);
         g.fill({ color: algoColor, alpha: 0.5 });
       }
     }
 
-    // FOV range circle
     if (showFOV) {
       g.circle(enemy.pixelX, enemy.pixelY, enemy.visionRange * TILE_SIZE);
       g.fill({ color: algoColor, alpha: enemy.alertState === AlertState.CHASING ? 0.08 : 0.03 });
