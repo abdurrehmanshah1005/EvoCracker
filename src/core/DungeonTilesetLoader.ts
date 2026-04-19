@@ -8,7 +8,8 @@
 import { Assets, Texture, Rectangle } from 'pixi.js';
 import { TileType } from '@utils/constants';
 
-const TILE_PX = 16; // Source tile size in the spritesheet
+const TILE_COLUMNS = 8;
+let tilePx = 16; // Computed at runtime from loaded tileset width / TILE_COLUMNS
 const TILESET_BASE_PATHS = [
   'assets/dungeon-pack/tileset_v2.png',
   'assets/dungeon-pack/tilese_v2.png',
@@ -115,6 +116,8 @@ export async function loadTileset(): Promise<boolean> {
       tilesetTexture = await Assets.load(loadPath) as Texture;
       // Set nearest-neighbor scaling for crisp pixels
       tilesetTexture.source.scaleMode = 'nearest';
+      const loadedWidth = tilesetTexture.width;
+      tilePx = Math.max(1, Math.floor(loadedWidth / TILE_COLUMNS));
       console.info(`[DungeonTilesetLoader] Loaded tileset: ${basePath}`);
       return true;
     } catch {
@@ -144,7 +147,7 @@ function extractTile(col: number, row: number): Texture {
 
   const tex = new Texture({
     source: tilesetTexture.source,
-    frame: new Rectangle(col * TILE_PX, row * TILE_PX, TILE_PX, TILE_PX),
+    frame: new Rectangle(col * tilePx, row * tilePx, tilePx, tilePx),
   });
 
   textureCache.set(key, tex);
