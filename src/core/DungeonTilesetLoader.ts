@@ -1,47 +1,39 @@
 // ========================
 // DungeonTilesetLoader — Loads pixel-art tileset and parses into tile textures
 //
-// The tileset is a 160×160 PNG containing 10×10 grid of 16×16 tiles.
-// This module maps each TileType to specific tile(s) on the spritesheet.
+// Supports two modes:
+// 1. Tiled JSON map mode: renders tiles by GID from dungeon_tileset.png
+// 2. Legacy mode: maps TileType enum to grid positions on tileset_v2.png
 // ========================
 
 import { Assets, Texture, Rectangle } from 'pixi.js';
 import { TileType } from '@utils/constants';
 
-const TILE_COLUMNS = 8;
-let tilePx = 16; // Computed at runtime from loaded tileset width / TILE_COLUMNS
-const TILESET_BASE_PATHS = [
-  'assets/dungeon-pack/tileset_v2.png',
-  'assets/dungeon-pack/tilese_v2.png',
-  'assets/dungeon-pack/tileset.png',
-] as const;
+// ── Legacy tileset (tileset_v2.png) — used for procedurally generated floors ──
+const LEGACY_TILE_COLUMNS = 8;
+let legacyTilePx = 16;
+const LEGACY_TILESET_PATH = 'assets/dungeon-pack/tileset_v2.png';
 
-// ── Tileset coordinate map ──────────────────────────────────────────
-// Each entry is [col, row] in the 10×10 grid (0-indexed)
-// Mapped by examining the Dungeon_Tileset.png layout:
-//
-// Row 0: top-wall variants (left-corner, mid, right-corner, column-top, etc.)
-// Row 1: mid-wall + side-wall pieces
-// Row 2: bottom-wall + floor transitions
-// Row 3: floor variants (stone, alt-stone)
-// Row 4: decorative floor (cracks, patterns)
-// Row 5-6: items/objects on the tileset
-// Row 7-9: more decorative tiles, doors, stairs, etc.
+// ── Tiled map tileset (dungeon_tileset.png) — used for JSON map floors ──
+const TILED_TILESET_PATH = 'assets/dungeon-pack/dungeon_tileset.png';
 
+// ── Tileset coordinate map for legacy mode ──────────────────────────
 interface TileRegion {
   col: number;
   row: number;
 }
 
-// Map TileType → position(s) on the spritesheet
+// Map TileType → position(s) on the legacy spritesheet
 const TILE_MAP: Record<number, TileRegion[]> = {
   // Floors — pick from floor region
   [TileType.FLOOR_STONE]: [
-    { col: 1, row: 3 },  // Main stone floor
-    { col: 2, row: 3 },  // Alt stone floor
+    { col: 1, row: 0 },  // Path
   ],
   [TileType.WALL]: [
-    { col: 0, row: 0 },  // Default wall face
+    { col: 4, row: 0 },
+    { col: 5, row: 0 },
+    { col: 6, row: 0 },
+    { col: 7, row: 0 },
   ],
   [TileType.FLOOR_MUD]: [
     { col: 3, row: 3 },  // Darker floor variant as mud
@@ -75,84 +67,98 @@ const TILE_MAP: Record<number, TileRegion[]> = {
   ],
 };
 
-// Wall auto-tile pieces — for smarter wall rendering
-const WALL_TILES = {
-  top:        { col: 1, row: 0 },  // Top wall edge
-  topLeft:    { col: 0, row: 0 },  // Top-left corner
-  topRight:   { col: 2, row: 0 },  // Top-right corner
-  mid:        { col: 1, row: 1 },  // Middle wall (fully surrounded)
-  midLeft:    { col: 0, row: 1 },  // Left wall edge
-  midRight:   { col: 2, row: 1 },  // Right wall edge
-  bottom:     { col: 1, row: 2 },  // Bottom wall edge (floor transition)
-  bottomLeft: { col: 0, row: 2 },  // Bottom-left corner
-  bottomRight:{ col: 2, row: 2 },  // Bottom-right corner
-  single:     { col: 3, row: 1 },  // Standalone pillar/column
-  face:       { col: 1, row: 1 },  // Default wall face
-};
+// ── State ───────────────────────────────────────────────────────────
+let legacyTilesetTexture: Texture | null = null;
+let tiledTilesetTexture: Texture | null = null;
+let tiledTilesetColumns = 0;
+let tiledTilePx = 32; // Tiled maps typically use 32×32
 
-let tilesetTexture: Texture | null = null;
-const textureCache = new Map<string, Texture>();
-function getTilesetPathForLoad(basePath: string): string {
+const legacyTextureCache = new Map<string, Texture>();
+const tiledTextureCache = new Map<number, Texture>();
+let tilesetLoadRevision = 0;
+
+function getCacheBustedPath(basePath: string): string {
+  if (import.meta.env.DEV) {
+    return `${basePath}?v=${tilesetLoadRevision}`;
+  }
   return basePath;
 }
 
 /**
- * Load the tileset spritesheet. Call once during game init.
+ * Load the legacy tileset spritesheet (tileset_v2.png). Call once during game init.
  */
 export async function loadTileset(): Promise<boolean> {
-  textureCache.clear();
-  tilesetTexture = null;
+  tilesetLoadRevision += 1;
+  legacyTextureCache.clear();
+  tiledTextureCache.clear();
+  legacyTilesetTexture = null;
+  tiledTilesetTexture = null;
 
-  for (const basePath of TILESET_BASE_PATHS) {
-    try {
-      const loadPath = getTilesetPathForLoad(basePath);
-      tilesetTexture = await Assets.load(loadPath) as Texture;
-      // Set nearest-neighbor scaling for crisp pixels
-      tilesetTexture.source.scaleMode = 'nearest';
-      const loadedWidth = tilesetTexture.width;
-      tilePx = Math.max(1, Math.floor(loadedWidth / TILE_COLUMNS));
-      console.info(`[DungeonTilesetLoader] Loaded tileset: ${basePath}`);
-      return true;
-    } catch {
-      // Try next candidate
-    }
+  let legacyOk = false;
+  let tiledOk = false;
+
+  // Load legacy tileset
+  try {
+    const loadPath = getCacheBustedPath(LEGACY_TILESET_PATH);
+    legacyTilesetTexture = await Assets.load(loadPath) as Texture;
+    legacyTilesetTexture.source.scaleMode = 'nearest';
+    const loadedWidth = legacyTilesetTexture.width;
+    legacyTilePx = Math.max(1, Math.floor(loadedWidth / LEGACY_TILE_COLUMNS));
+    console.info(`[DungeonTilesetLoader] Loaded legacy tileset: ${LEGACY_TILESET_PATH}`);
+    legacyOk = true;
+  } catch {
+    console.warn('[DungeonTilesetLoader] tileset_v2.png not found, using fallback colors');
   }
 
-  console.warn('[DungeonTilesetLoader] Tileset not found, using fallback colors');
-  return false;
+  // Load Tiled map tileset (dungeon_tileset.png)
+  try {
+    const loadPath = getCacheBustedPath(TILED_TILESET_PATH);
+    tiledTilesetTexture = await Assets.load(loadPath) as Texture;
+    tiledTilesetTexture.source.scaleMode = 'nearest';
+    // Calculate columns from the image width and the tile size (32px)
+    tiledTilePx = 32;
+    tiledTilesetColumns = Math.max(1, Math.floor(tiledTilesetTexture.width / tiledTilePx));
+    console.info(`[DungeonTilesetLoader] Loaded Tiled tileset: ${TILED_TILESET_PATH} (${tiledTilesetTexture.width}x${tiledTilesetTexture.height}, ${tiledTilesetColumns} cols)`);
+    tiledOk = true;
+  } catch {
+    console.warn('[DungeonTilesetLoader] dungeon_tileset.png not found');
+  }
+
+  return legacyOk || tiledOk;
 }
 
 /**
- * Check if tileset is loaded
+ * Check if any tileset is loaded
  */
 export function isTilesetLoaded(): boolean {
-  return tilesetTexture !== null;
+  return legacyTilesetTexture !== null || tiledTilesetTexture !== null;
 }
 
 /**
- * Extract a texture from the tileset at the given grid position
+ * Check if the Tiled map tileset is loaded
  */
-function extractTile(col: number, row: number): Texture {
-  const key = `${col}_${row}`;
-  if (textureCache.has(key)) return textureCache.get(key)!;
+export function isTiledTilesetLoaded(): boolean {
+  return tiledTilesetTexture !== null;
+}
 
-  if (!tilesetTexture) throw new Error('Tileset not loaded');
+// ── Legacy tileset extraction ───────────────────────────────────────
+
+function extractLegacyTile(col: number, row: number): Texture {
+  const key = `legacy_${col}_${row}`;
+  if (legacyTextureCache.has(key)) return legacyTextureCache.get(key)!;
+  if (!legacyTilesetTexture) throw new Error('Legacy tileset not loaded');
 
   const tex = new Texture({
-    source: tilesetTexture.source,
-    frame: new Rectangle(col * tilePx, row * tilePx, tilePx, tilePx),
+    source: legacyTilesetTexture.source,
+    frame: new Rectangle(col * legacyTilePx, row * legacyTilePx, legacyTilePx, legacyTilePx),
   });
 
-  textureCache.set(key, tex);
+  legacyTextureCache.set(key, tex);
   return tex;
 }
 
-/**
- * Get the tile texture for a given TileType.
- * For tiles with multiple variants, picks one based on position hash for variety.
- */
 export function getTileTexture(tileType: TileType, x: number, y: number): Texture | null {
-  if (!tilesetTexture) return null;
+  if (!legacyTilesetTexture) return null;
 
   const regions = TILE_MAP[tileType];
   if (!regions || regions.length === 0) return null;
@@ -161,55 +167,71 @@ export function getTileTexture(tileType: TileType, x: number, y: number): Textur
   const variantIndex = (x * 7 + y * 13) % regions.length;
   const region = regions[variantIndex];
 
-  return extractTile(region.col, region.row);
+  return extractLegacyTile(region.col, region.row);
 }
 
-/**
- * Get the appropriate wall texture based on neighboring wall tiles.
- * This enables auto-tiling — walls look different based on context.
- */
 export function getWallTexture(
   x: number, y: number,
   tiles: number[][], w: number, h: number
 ): Texture | null {
-  if (!tilesetTexture) return null;
+  if (!legacyTilesetTexture) return null;
 
-  const isWall = (tx: number, ty: number): boolean => {
-    if (tx < 0 || ty < 0 || tx >= w || ty >= h) return true; // Out of bounds = wall
-    return tiles[ty][tx] === TileType.WALL;
-  };
+  const regions = TILE_MAP[TileType.WALL];
+  if (!regions || regions.length === 0) return null;
 
-  const up = isWall(x, y - 1);
-  const down = isWall(x, y + 1);
-  const left = isWall(x - 1, y);
-  const right = isWall(x + 1, y);
+  const variantIndex = (x * 7 + y * 13) % regions.length;
+  const region = regions[variantIndex];
 
-  let tile: TileRegion;
+  return extractLegacyTile(region.col, region.row);
+}
 
-  // Determine wall piece based on neighbors
-  if (!down && up && left && right) {
-    tile = WALL_TILES.bottom;       // Bottom edge — floor below
-  } else if (!down && up && !left && right) {
-    tile = WALL_TILES.bottomLeft;
-  } else if (!down && up && left && !right) {
-    tile = WALL_TILES.bottomRight;
-  } else if (down && !up && left && right) {
-    tile = WALL_TILES.top;          // Top edge — floor above
-  } else if (down && !up && !left && right) {
-    tile = WALL_TILES.topLeft;
-  } else if (down && !up && left && !right) {
-    tile = WALL_TILES.topRight;
-  } else if (up && down && !left && right) {
-    tile = WALL_TILES.midLeft;
-  } else if (up && down && left && !right) {
-    tile = WALL_TILES.midRight;
-  } else if (!up && !down && !left && !right) {
-    tile = WALL_TILES.single;       // Standalone pillar
-  } else {
-    tile = WALL_TILES.mid;          // Fully surrounded
-  }
+// ── Tiled map tileset extraction (by GID) ───────────────────────────
 
-  return extractTile(tile.col, tile.row);
+/**
+ * Tiled encodes flip flags in the upper bits of tile GIDs.
+ * Strip them to get the raw tile index.
+ */
+const FLIPPED_HORIZONTALLY_FLAG = 0x80000000;
+const FLIPPED_VERTICALLY_FLAG   = 0x40000000;
+const FLIPPED_DIAGONALLY_FLAG   = 0x20000000;
+const GID_MASK = ~(FLIPPED_HORIZONTALLY_FLAG | FLIPPED_VERTICALLY_FLAG | FLIPPED_DIAGONALLY_FLAG);
+
+export function stripTiledFlipFlags(gid: number): number {
+  // JS bitwise ops work on signed 32-bit ints, so use unsigned right shift to handle
+  return (gid & GID_MASK) >>> 0;
+}
+
+/**
+ * Get a texture for a Tiled map tile GID. Handles flip flags and firstgid offset.
+ * @param rawGid The raw GID from the Tiled JSON data array (may include flip flags)
+ * @param firstGid The firstgid from the tileset definition in the JSON (typically 1)
+ * @returns Texture for the tile, or null if GID is 0 (empty) or tileset not loaded
+ */
+export function getTiledTileTexture(rawGid: number, firstGid: number = 1): Texture | null {
+  if (!tiledTilesetTexture) return null;
+
+  const cleanGid = stripTiledFlipFlags(rawGid);
+  if (cleanGid === 0) return null; // Empty tile
+
+  const tileIndex = cleanGid - firstGid;
+  if (tileIndex < 0) return null;
+
+  if (tiledTextureCache.has(tileIndex)) return tiledTextureCache.get(tileIndex)!;
+
+  const col = tileIndex % tiledTilesetColumns;
+  const row = Math.floor(tileIndex / tiledTilesetColumns);
+
+  // Bounds check
+  const maxRow = Math.floor(tiledTilesetTexture.height / tiledTilePx);
+  if (row >= maxRow || col >= tiledTilesetColumns) return null;
+
+  const tex = new Texture({
+    source: tiledTilesetTexture.source,
+    frame: new Rectangle(col * tiledTilePx, row * tiledTilePx, tiledTilePx, tiledTilePx),
+  });
+
+  tiledTextureCache.set(tileIndex, tex);
+  return tex;
 }
 
 // ── Animated item frame loaders ─────────────────────────────────────

@@ -119,8 +119,6 @@ src/
 
 ---
 
-## For Contributors (GitHub Handoff)
-
 ### Phase 5 — Next Up
 **File to start:** `src/game/entities/enemies/EnemyBase.ts`
 

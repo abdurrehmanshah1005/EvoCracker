@@ -1,5 +1,5 @@
 // ========================
-// Procedural Dungeon Generator — BSP Tree Algorithm
+// Procedural Dungeon Generator — BSP Tree Algorithm + Tiled JSON Loader
 // Generates rooms, corridors, and populates with entities
 // ========================
 
@@ -28,6 +28,19 @@ export interface DungeonData {
   enemySpawnPoints: { x: number; y: number }[];
   biome: BiomeType;
   floor: number;
+  /** When present, the map was loaded from a Tiled JSON and should be rendered by GID */
+  tiledLayers?: TiledLayerData[];
+  tiledFirstGid?: number;
+  tiledWidth?: number;
+  tiledHeight?: number;
+}
+
+/** Parsed Tiled layer for GID-based rendering */
+export interface TiledLayerData {
+  name: string;
+  data: number[];
+  width: number;
+  height: number;
 }
 
 interface RGB {
@@ -50,31 +63,35 @@ const MIN_ROOM_SIZE = 5;
 const MAX_ROOM_SIZE = 12;
 const MIN_LEAF_SIZE = 8;
 
+// Tiled flip flag constants
+const FLIPPED_HORIZONTALLY_FLAG = 0x80000000;
+const FLIPPED_VERTICALLY_FLAG   = 0x40000000;
+const FLIPPED_DIAGONALLY_FLAG   = 0x20000000;
+const GID_MASK = ~(FLIPPED_HORIZONTALLY_FLAG | FLIPPED_VERTICALLY_FLAG | FLIPPED_DIAGONALLY_FLAG);
+
+function stripFlipFlags(gid: number): number {
+  return (gid & GID_MASK) >>> 0;
+}
+
 /** Generate a complete dungeon floor */
 export async function generateDungeon(
   width: number,
   height: number,
   floor: number,
-  biome: BiomeType = BiomeType.DUNGEON,
-  mapId: string = 'crypt'
+  biome: BiomeType = BiomeType.DUNGEON
 ): Promise<DungeonData> {
-  // Floor 1 with a specific map: load from PNG or handcrafted layout
-  if (floor === 1 && mapId !== 'random') {
-    // Determine which PNG to load based on mapId
-    const mapPaths: Record<string, string[]> = {
-      'crypt': ['/assets/maps/floor1.png', '/assets/maps/floor1_layout.png'],
-      'forest_ruins': ['/assets/maps/forest_ruins.png'],
-    };
+  // Floor 1: try Tiled JSON map first (grinmap.json)
+  if (floor === 1) {
+    const fromTiled = await generateFloorFromTiledJson(floor, biome);
+    if (fromTiled) return fromTiled;
 
-    const paths = mapPaths[mapId] ?? mapPaths['crypt'];
-    const fromPng = await generateFloorFromPngLayout(width, height, floor, biome, paths);
+    // Fallback: try PNG layout
+    const fromPng = await generateFloorFromPngLayout(width, height, floor, biome);
     if (fromPng) return fromPng;
 
-    // Fallback to handcrafted only for crypt
-    if (mapId === 'crypt') {
-      const handcrafted = generateHandcraftedCryptMap(width, height, floor, biome);
-      if (handcrafted) return handcrafted;
-    }
+    // Fallback if image loading/parsing fails
+    const handcrafted = generateHandcraftedCryptMap(width, height, floor, biome);
+    if (handcrafted) return handcrafted;
   }
 
   // Initialize tile grid with walls
@@ -159,14 +176,178 @@ export async function generateDungeon(
   };
 }
 
+async function generateFloorFromTiledJson(
+  floor: number,
+  biome: BiomeType
+): Promise<DungeonData | null> {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const response = await fetch('/assets/maps/grinmap.json');
+    if (!response.ok) return null;
+
+    const mapData = await response.json();
+
+    const mapW: number = mapData.width;
+    const mapH: number = mapData.height;
+    const tileWidth: number = mapData.tilewidth;
+    const tileHeight: number = mapData.tileheight;
+    const firstGid: number = mapData.tilesets?.[0]?.firstgid ?? 1;
+
+    if (!mapData.layers || mapData.layers.length === 0) return null;
+
+    console.info(`[DungeonGenerator] Loading Tiled JSON map: ${mapW}x${mapH}, tile size ${tileWidth}x${tileHeight}, firstGid=${firstGid}`);
+
+    // Parse layers
+    const tiledLayers: TiledLayerData[] = mapData.layers
+      .filter((l: any) => l.type === 'tilelayer' && l.data)
+      .map((l: any) => ({
+        name: l.name,
+        data: l.data as number[],
+        width: l.width,
+        height: l.height,
+      }));
+
+    // Build walkability from the Walls layer:
+    // - GID 0 = no wall tile placed → walkable (floor beneath)
+    // - GID 189 = this is used as "outside/void" markers in this map → not walkable
+    // - GID with flip flags (like 2684354660) = wall tile → not walkable
+    // - Other non-zero GIDs = wall tiles → not walkable
+    // But GID 0 in Wall layer AND GID 0 in Floor layer = void/empty = wall
+    const floorLayer = tiledLayers.find(l => l.name === 'Floor');
+    const wallsLayer = tiledLayers.find(l => l.name === 'Walls');
+
+    const tiles: TileType[][] = [];
+    for (let y = 0; y < mapH; y++) {
+      tiles[y] = [];
+      for (let x = 0; x < mapW; x++) {
+        const idx = y * mapW + x;
+        const floorGid = floorLayer ? stripFlipFlags(floorLayer.data[idx]) : 0;
+        const wallGid = wallsLayer ? stripFlipFlags(wallsLayer.data[idx]) : 0;
+
+        // Determine tile type for pathfinding:
+        // If wall layer has a wall-like tile (non-zero, and not just empty space marker)
+        // The wall GIDs in this map are: 87 (border), 104 (horizontal wall), 189 (void/outside)
+        // and 2684354660 (flipped wall tile, which strips to a valid GID)
+        //
+        // Simple rule: if the wall layer has a non-zero GID, it's a wall.
+        // Exception: GID 0 in both layers = also a wall (void)
+        if (wallGid !== 0) {
+          // Wall layer has something — check if it's a "void" marker or actual wall
+          tiles[y][x] = TileType.WALL;
+        } else if (floorGid === 0) {
+          // No floor and no wall = void space = wall
+          tiles[y][x] = TileType.WALL;
+        } else {
+          // Floor tile exists, no wall blocking = walkable floor
+          tiles[y][x] = TileType.FLOOR_STONE;
+        }
+      }
+    }
+
+    // Find spawn/exit points from walkable areas
+    let spawnPoint: { x: number; y: number } | null = null;
+    let exitPoint: { x: number; y: number } | null = null;
+    const treasurePoints: { x: number; y: number }[] = [];
+    const enemySpawnPoints: { x: number; y: number }[] = [];
+
+    // Find the first and last walkable tiles as spawn and exit
+    for (let y = 1; y < mapH - 1 && !spawnPoint; y++) {
+      for (let x = 1; x < mapW - 1 && !spawnPoint; x++) {
+        if (tiles[y][x] !== TileType.WALL) {
+          spawnPoint = { x, y };
+          tiles[y][x] = TileType.STAIRS_UP;
+        }
+      }
+    }
+
+    for (let y = mapH - 2; y >= 1 && !exitPoint; y--) {
+      for (let x = mapW - 2; x >= 1 && !exitPoint; x--) {
+        if (tiles[y][x] !== TileType.WALL && !(spawnPoint && x === spawnPoint.x && y === spawnPoint.y)) {
+          exitPoint = { x, y };
+          tiles[y][x] = TileType.STAIRS_DOWN;
+        }
+      }
+    }
+
+    // Auto-generate enemy spawn points from walkable floor tiles
+    for (let y = 2; y < mapH - 2; y += 3) {
+      for (let x = 2; x < mapW - 2; x += 3) {
+        const t = tiles[y][x];
+        const walkable = t !== TileType.WALL && t !== TileType.STAIRS_UP && t !== TileType.STAIRS_DOWN;
+        if (!walkable) continue;
+        if (spawnPoint && Math.abs(x - spawnPoint.x) + Math.abs(y - spawnPoint.y) < 5) continue;
+        if (exitPoint && Math.abs(x - exitPoint.x) + Math.abs(y - exitPoint.y) < 4) continue;
+        enemySpawnPoints.push({ x, y });
+      }
+    }
+
+    const finalSpawn = spawnPoint ?? { x: 1, y: 1 };
+    const finalExit = exitPoint ?? { x: Math.max(1, mapW - 2), y: Math.max(1, mapH - 2) };
+
+    // Room metadata
+    const rooms: Room[] = [
+      {
+        x: 1, y: 1,
+        width: Math.max(1, mapW - 2),
+        height: Math.max(1, mapH - 2),
+        centerX: Math.floor(mapW / 2),
+        centerY: Math.floor(mapH / 2),
+        type: 'normal',
+        connected: true,
+      },
+      {
+        x: finalSpawn.x, y: finalSpawn.y,
+        width: 1, height: 1,
+        centerX: finalSpawn.x, centerY: finalSpawn.y,
+        type: 'start',
+        connected: true,
+      },
+      {
+        x: finalExit.x, y: finalExit.y,
+        width: 1, height: 1,
+        centerX: finalExit.x, centerY: finalExit.y,
+        type: 'exit',
+        connected: true,
+      },
+    ];
+
+    console.info(`[DungeonGenerator] Tiled JSON map loaded: ${mapW}x${mapH}, spawn=(${finalSpawn.x},${finalSpawn.y}), exit=(${finalExit.x},${finalExit.y}), enemies=${enemySpawnPoints.length}`);
+
+    return {
+      width: mapW,
+      height: mapH,
+      tiles,
+      rooms,
+      spawnPoint: finalSpawn,
+      exitPoint: finalExit,
+      treasurePoints,
+      enemySpawnPoints,
+      biome,
+      floor,
+      tiledLayers,
+      tiledFirstGid: firstGid,
+      tiledWidth: mapW,
+      tiledHeight: mapH,
+    };
+  } catch (err) {
+    console.warn('[DungeonGenerator] Failed to load Tiled JSON map:', err);
+    return null;
+  }
+}
+
 async function generateFloorFromPngLayout(
   width: number,
   height: number,
   floor: number,
-  biome: BiomeType,
-  layoutPaths: string[] = ['/assets/maps/floor1_layout.png']
+  biome: BiomeType
 ): Promise<DungeonData | null> {
   if (typeof window === 'undefined') return null;
+
+  const layoutPaths = [
+    '/assets/maps/floor1.png',
+    '/assets/maps/floor1_layout.png',
+  ];
 
   try {
     let image: HTMLImageElement | null = null;

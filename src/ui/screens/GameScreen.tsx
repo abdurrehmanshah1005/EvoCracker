@@ -9,7 +9,7 @@ import { useGameStore } from '@store/gameStore';
 import { InputManager } from '@core/InputManager';
 import { Camera } from '@core/Camera';
 import { Grid } from '@ai/pathfinding/Grid';
-import { generateDungeon, getBiomeForFloor } from '@game/world/DungeonGenerator';
+import { generateDungeon, getBiomeForFloor, type TiledLayerData } from '@game/world/DungeonGenerator';
 import { TILE_SIZE, TileType, GRID_COLS, GRID_ROWS, ALGORITHM_COLORS, AlertState, EnemyType } from '@utils/constants';
 import { AIAnalyticsPanel } from '@ui/analytics/AIAnalyticsPanel';
 import { PlayerHUD } from '@ui/hud/PlayerHUD';
@@ -21,7 +21,7 @@ import { createRandomGenome } from '@ai/evolution/GeneticAlgorithm';
 import { EventBus, GameEvents } from '@core/EventBus';
 import type { EnemyBase } from '@game/entities/enemies/EnemyBase';
 import { randomInt } from '@utils/random';
-import { loadTileset, isTilesetLoaded, getTileTexture, getWallTexture, loadItemAnimations } from '@core/DungeonTilesetLoader';
+import { loadTileset, isTilesetLoaded, getTileTexture, getWallTexture, loadItemAnimations, getTiledTileTexture, isTiledTilesetLoaded } from '@core/DungeonTilesetLoader';
 
 // ===== TILE COLORS — High contrast ==========================
 const TILE_COLORS: Record<number, number> = {
@@ -208,7 +208,7 @@ export function GameScreen() {
     gridRef.current = grid;
 
     // ── Render tilemap ────────────────────────────────────────────
-    renderTilemap(worldContainer, dungeon.tiles, dungeon.width, dungeon.height);
+    renderTilemap(worldContainer, dungeon.tiles, dungeon.width, dungeon.height, dungeon.tiledLayers, dungeon.tiledFirstGid);
     renderMarkers(worldContainer, dungeon);
 
     // ── Player ────────────────────────────────────────────────────
@@ -654,11 +654,55 @@ export function GameScreen() {
 // TILEMAP RENDERER
 // ══════════════════════════════════════════════════════════════════════
 
-function renderTilemap(container: Container, tiles: number[][], w: number, h: number) {
+function renderTilemap(
+  container: Container,
+  tiles: number[][],
+  w: number,
+  h: number,
+  tiledLayers?: TiledLayerData[],
+  tiledFirstGid?: number,
+) {
   const tileContainer = new Container();
   tileContainer.label = 'tiles';
   tileContainer.zIndex = 0;
 
+  // ── Tiled JSON map mode: render each layer using GID-based textures ──
+  if (tiledLayers && tiledLayers.length > 0 && isTiledTilesetLoaded()) {
+    const firstGid = tiledFirstGid ?? 1;
+
+    for (const layer of tiledLayers) {
+      const layerContainer = new Container();
+      layerContainer.label = layer.name;
+
+      for (let y = 0; y < layer.height; y++) {
+        for (let x = 0; x < layer.width; x++) {
+          const idx = y * layer.width + x;
+          const rawGid = layer.data[idx];
+          if (rawGid === 0) continue; // Empty tile in this layer
+
+          const px = x * TILE_SIZE;
+          const py = y * TILE_SIZE;
+
+          const tex = getTiledTileTexture(rawGid, firstGid);
+          if (tex) {
+            const sprite = new Sprite(tex);
+            sprite.x = px;
+            sprite.y = py;
+            sprite.width = TILE_SIZE;
+            sprite.height = TILE_SIZE;
+            layerContainer.addChild(sprite);
+          }
+        }
+      }
+
+      tileContainer.addChild(layerContainer);
+    }
+
+    container.addChild(tileContainer);
+    return;
+  }
+
+  // ── Legacy mode: render using TileType → tileset_v2.png mapping ──
   const useSpritesheet = isTilesetLoaded();
 
   if (useSpritesheet) {
