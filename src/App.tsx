@@ -4,6 +4,7 @@ import { GameScreen } from '@ui/screens/GameScreen';
 import { AlgorithmLabScreen } from '@ui/screens/AlgorithmLabScreen';
 import { SettingsScreen } from '@ui/screens/SettingsScreen';
 import { CharacterSelectScreen } from '@ui/screens/CharacterSelectScreen';
+import { MapSelectScreen } from '@ui/screens/MapSelectScreen';
 
 function App() {
   const currentScreen = useGameStore((s) => s.currentScreen);
@@ -12,6 +13,8 @@ function App() {
     switch (currentScreen) {
       case 'mainMenu':
         return <MainMenu />;
+      case 'mapSelect':
+        return <MapSelectScreen />;
       case 'characterSelect':
         return <CharacterSelectScreen />;
       case 'playing':

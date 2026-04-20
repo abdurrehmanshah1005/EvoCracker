@@ -48,9 +48,9 @@ export function GameScreen() {
   const cameraRef = useRef<Camera | null>(null);
   const gridRef = useRef<Grid | null>(null);
   const enemiesRef = useRef<EnemyBase[]>([]);
-  const fallbackKeysDownRef = useRef<Set<string>>(new Set());
-  const fallbackKeysPressedRef = useRef<Set<string>>(new Set());
   const cleanupFnRef = useRef<(() => void) | null>(null);
+  const playerDeadRef = useRef(false);
+  const isPausedRef = useRef(false);
 
   const [isLoaded, setIsLoaded] = useState(false);
   const isLoadedRef = useRef(false);
@@ -81,14 +81,22 @@ export function GameScreen() {
   // Use individual selectors to avoid full-store subscription re-renders
   const currentFloor = useGameStore((s) => s.currentFloor);
   const analyticsEnabled = useGameStore((s) => s.analyticsEnabled);
-  const toggleAnalytics = useGameStore((s) => s.toggleAnalytics);
-  const setDungeonData = useGameStore((s) => s.setDungeonData);
-  const setFps = useGameStore((s) => s.setFps);
-  const setEnemyAnalytics = useGameStore((s) => s.setEnemyAnalytics);
-  const setPlayerHealth = useGameStore((s) => s.setPlayerHealth);
-  const addScore = useGameStore((s) => s.addScore);
-  const setScreen = useGameStore((s) => s.setScreen);
+  const isPaused = useGameStore((s) => s.isPaused);
   const selectedCharacter = useGameStore((s) => s.selectedCharacter);
+  const selectedMap = useGameStore((s) => s.selectedMap);
+
+  // Store action refs — these never change identity, but using refs
+  // prevents initGame from being recreated when other state changes
+  const storeActionsRef = useRef({
+    toggleAnalytics: useGameStore.getState().toggleAnalytics,
+    setDungeonData: useGameStore.getState().setDungeonData,
+    setFps: useGameStore.getState().setFps,
+    setEnemyAnalytics: useGameStore.getState().setEnemyAnalytics,
+    setPlayerHealth: useGameStore.getState().setPlayerHealth,
+    addScore: useGameStore.getState().addScore,
+    setScreen: useGameStore.getState().setScreen,
+    togglePause: useGameStore.getState().togglePause,
+  });
 
   // Use refs for values used in the game loop so they don't cause re-init
   const showPathsRef = useRef(useGameStore.getState().showPaths);
@@ -107,8 +115,12 @@ export function GameScreen() {
     notifTimerRef.current = setTimeout(() => setNotification(null), 3000);
   }, []);
 
-  const initGame = useCallback(async () => {
+  const initGame = useCallback(async (signal: AbortSignal) => {
     if (!canvasRef.current) return;
+
+    // Reset death/pause state
+    playerDeadRef.current = false;
+    isPausedRef.current = false;
 
     // ── Clean up any previous instance (React StrictMode fix) ────
     if (appRef.current) {
@@ -122,18 +134,30 @@ export function GameScreen() {
       }
     }
 
-    const app = new Application();
-    await app.init({
-      width: window.innerWidth,
-      height: window.innerHeight,
-      backgroundColor: 0x060610,
-      antialias: false,
-      resolution: window.devicePixelRatio || 1,
-      autoDensity: true,
-    });
+    try {
+      const app = new Application();
+      await app.init({
+        width: window.innerWidth,
+        height: window.innerHeight,
+        backgroundColor: 0x060610,
+        antialias: false,
+        resolution: window.devicePixelRatio || 1,
+        autoDensity: true,
+        preference: 'webgl'
+      });
+
+      if (signal.aborted) {
+        try { app.destroy(true); } catch { /* ignore */ }
+        return;
+      }
 
     canvasRef.current.appendChild(app.canvas);
     appRef.current = app;
+
+    // Auto-focus canvas so keyboard events work immediately
+    canvasRef.current.tabIndex = 0;
+    canvasRef.current.style.outline = 'none';
+    canvasRef.current.focus();
 
     const camera = new Camera({ viewportWidth: window.innerWidth, viewportHeight: window.innerHeight });
     cameraRef.current = camera;
@@ -143,8 +167,13 @@ export function GameScreen() {
 
     // ── Load pixel-art assets ──────────────────────────────────────
     await loadTileset();
+    if (signal.aborted) return;
+    
     await initSpriteAssets();
+    if (signal.aborted) return;
+    
     const itemAnims = await loadItemAnimations();
+    if (signal.aborted) return;
 
     // ── Containers ─────────────────────────────────────────────────
     const worldContainer = new Container();
@@ -161,26 +190,12 @@ export function GameScreen() {
     worldContainer.addChild(attackLayer);
     attackVisualRef.current = attackLayer;
 
-    // Direct keyboard fallback
-    const onFallbackKeyDown = (e: KeyboardEvent) => {
-      const code = e.code;
-      const down = fallbackKeysDownRef.current;
-      if (!down.has(code)) fallbackKeysPressedRef.current.add(code);
-      down.add(code);
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space', 'Backquote', 'Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(code)) {
-        e.preventDefault();
-      }
-    };
-    const onFallbackKeyUp = (e: KeyboardEvent) => {
-      fallbackKeysDownRef.current.delete(e.code);
-    };
-    window.addEventListener('keydown', onFallbackKeyDown);
-    window.addEventListener('keyup', onFallbackKeyUp);
-
     // ── Generate dungeon ──────────────────────────────────────────
     const biome = getBiomeForFloor(currentFloor);
-    const dungeon = await generateDungeon(GRID_COLS, GRID_ROWS, currentFloor, biome);
-    setDungeonData(dungeon);
+    const dungeon = await generateDungeon(GRID_COLS, GRID_ROWS, currentFloor, biome, selectedMap);
+    if (signal.aborted) return;
+    
+    storeActionsRef.current.setDungeonData(dungeon);
     camera.setWorldBounds(dungeon.width * TILE_SIZE, dungeon.height * TILE_SIZE);
 
     // ── Pathfinding grid ──────────────────────────────────────────
@@ -282,32 +297,35 @@ export function GameScreen() {
     // GAME LOOP
     // ══════════════════════════════════════════════════════════════
     app.ticker.add((ticker) => {
-      const dt = ticker.deltaTime / 60;
+      let dt = ticker.deltaTime / 60;
+      let dtSeconds = ticker.deltaMS / 1000;
+      
+      // Clamp delta time to prevent massive physics jumps on first frame or lag spikes
+      if (dt > 0.1) dt = 0.1;
+      if (dtSeconds > 0.1) dtSeconds = 0.1;
+
       fpsCounter++; fpsTimer += dt; analyticsTimer += dt;
 
       if (fpsTimer >= 1) {
-        setFps(Math.round(fpsCounter / fpsTimer));
+        storeActionsRef.current.setFps(Math.round(fpsCounter / fpsTimer));
         fpsCounter = 0; fpsTimer = 0;
+      }
+
+      // ── PAUSE / DEATH CHECK ─────────────────────────────────
+      if (input.isKeyJustPressed('escape')) {
+        isPausedRef.current = !isPausedRef.current;
+        storeActionsRef.current.togglePause();
+      }
+      if (isPausedRef.current || playerDeadRef.current) {
+        input.endFrame();
+        return;
       }
 
       // ── PLAYER MOVEMENT ───────────────────────────────────────
       const p = playerRef.current;
       const moveVec = input.getMovementVector();
-      let moveX = moveVec.x;
-      let moveY = moveVec.y;
-      if (moveX === 0 && moveY === 0) {
-        const down = fallbackKeysDownRef.current;
-        if (down.has('KeyW') || down.has('ArrowUp')) moveY -= 1;
-        if (down.has('KeyS') || down.has('ArrowDown')) moveY += 1;
-        if (down.has('KeyA') || down.has('ArrowLeft')) moveX -= 1;
-        if (down.has('KeyD') || down.has('ArrowRight')) moveX += 1;
-        if (moveX !== 0 && moveY !== 0) {
-          const len = Math.sqrt(moveX * moveX + moveY * moveY);
-          moveX /= len;
-          moveY /= len;
-        }
-      }
-      const dtSeconds = ticker.deltaMS / 1000;
+      const moveX = moveVec.x;
+      const moveY = moveVec.y;
       const moveSpeed = (p.state.isInvisible ? 200 : 160) * dtSeconds;
 
       if (moveX !== 0 || moveY !== 0) {
@@ -352,11 +370,9 @@ export function GameScreen() {
       }
 
       // ── PLAYER ATTACK (Space) ──────────────────────────────────
-      if (p.attackCooldown > 0) p.attackCooldown -= dt;
+      if (p.attackCooldown > 0) p.attackCooldown -= dtSeconds;
 
-      const fallbackPressed = fallbackKeysPressedRef.current;
-
-      if ((input.isCodeJustPressed('Space') || fallbackPressed.has('Space')) && p.attackCooldown <= 0) {
+      if (input.isCodeJustPressed('Space') && p.attackCooldown <= 0) {
         p.attackCooldown = 0.4;
         p.sprite?.setAnimation('attack');
 
@@ -394,7 +410,7 @@ export function GameScreen() {
       updateItems(p.items, p.state, dt);
       const itemCodes = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
       for (let i = 0; i < itemCodes.length; i++) {
-        if (!input.isCodeJustPressed(itemCodes[i]) && !fallbackPressed.has(itemCodes[i])) continue;
+        if (!input.isCodeJustPressed(itemCodes[i])) continue;
         const item = p.items[i];
         if (item && item.currentCooldown <= 0) {
           item.use(p.state, enemiesRef.current, grid);
@@ -462,14 +478,15 @@ export function GameScreen() {
             const dmg = enemy.attackDamage;
             enemy.performance.damageDealt += dmg;
             p.health = Math.max(0, p.health - dmg);
-            setPlayerHealth(p.health);
+            storeActionsRef.current.setPlayerHealth(p.health);
 
             p.sprite!.container.tint = 0xff4444;
             setTimeout(() => { p.sprite!.container.tint = 0xffffff; }, 200);
 
             if (p.health <= 0) {
+              playerDeadRef.current = true;
               showNotification('💀 You died! Game Over');
-              setTimeout(() => setScreen('mainMenu'), 2000);
+              setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 2000);
             }
           }
         }
@@ -490,7 +507,7 @@ export function GameScreen() {
       const playerTile = dungeon.tiles[p.tileY]?.[p.tileX];
       if (playerTile === TileType.FLOOR_TRAP) {
         p.health = Math.max(0, p.health - 15 * dt);
-        setPlayerHealth(Math.round(p.health));
+        storeActionsRef.current.setPlayerHealth(Math.round(p.health));
         for (const enemy of enemiesRef.current) {
           if (enemy.tileX === p.tileX && enemy.tileY === p.tileY) {
             enemy.stun(1);
@@ -501,7 +518,7 @@ export function GameScreen() {
       // ── ANALYTICS ──────────────────────────────────────────────
       if (analyticsTimer > 0.5) {
         analyticsTimer = 0;
-        setEnemyAnalytics(
+        storeActionsRef.current.setEnemyAnalytics(
           enemiesRef.current.slice(0, 15).map((e) => e.getAnalyticsSnapshot())
         );
       }
@@ -518,11 +535,9 @@ export function GameScreen() {
       input.setWorldMouse(worldMouse.x, worldMouse.y);
 
       // ── HOTKEYS ────────────────────────────────────────────────
-      if (input.isCodeJustPressed('Backquote') || fallbackPressed.has('Backquote')) toggleAnalytics();
-      if (input.isKeyJustPressed('escape')) setScreen('mainMenu');
+      if (input.isCodeJustPressed('Backquote')) storeActionsRef.current.toggleAnalytics();
 
       input.endFrame();
-      fallbackKeysPressedRef.current.clear();
     });
 
     // ── Resize ────────────────────────────────────────────────────
@@ -536,29 +551,28 @@ export function GameScreen() {
     const cleanup = () => {
       unsubNotif();
       window.removeEventListener('resize', onResize);
-      window.removeEventListener('keydown', onFallbackKeyDown);
-      window.removeEventListener('keyup', onFallbackKeyUp);
       input.destroy();
       try { app.destroy(true); } catch { /* already destroyed */ }
       appRef.current = null;
       enemiesRef.current = [];
-      fallbackKeysDownRef.current.clear();
-      fallbackKeysPressedRef.current.clear();
       isLoadedRef.current = false;
       setIsLoaded(false);
     };
 
     return cleanup;
-  // Only re-init when floor or character changes
-  // Store action functions are stable references from Zustand
-  }, [currentFloor, selectedCharacter, setDungeonData, setFps, toggleAnalytics, setEnemyAnalytics, setPlayerHealth, showNotification, addScore, setScreen]);
+    } catch (e) {
+      console.error("GameScreen initialization failed:", e);
+      showNotification(`Game failed to load: ${e}`);
+    }
+  // Only re-init when floor, character, or map changes
+  }, [currentFloor, selectedCharacter, selectedMap, showNotification]);
 
   // ── Effect: init game with proper StrictMode cleanup ────────────
   useEffect(() => {
-    let isCancelled = false;
+    const abortController = new AbortController();
 
-    initGame().then((cleanup) => {
-      if (isCancelled) {
+    initGame(abortController.signal).then((cleanup) => {
+      if (abortController.signal.aborted) {
         // Component unmounted before init finished — clean up immediately
         cleanup?.();
       } else {
@@ -567,7 +581,7 @@ export function GameScreen() {
     });
 
     return () => {
-      isCancelled = true;
+      abortController.abort();
       if (cleanupFnRef.current) {
         cleanupFnRef.current();
         cleanupFnRef.current = null;
@@ -600,7 +614,29 @@ export function GameScreen() {
           <span style={{ color: '#44ddff' }}>WASD</span> Move &nbsp;
           <span style={{ color: '#ff4466' }}>Space</span> Attack &nbsp;
           <span style={{ color: '#ffd700' }}>1-4</span> Items &nbsp;
-          <span style={{ color: '#aa66ff' }}>`</span> AI Panel
+          <span style={{ color: '#aa66ff' }}>`</span> AI Panel &nbsp;
+          <span style={{ color: '#88ff88' }}>Esc</span> Pause
+        </div>
+      )}
+
+      {/* Pause overlay */}
+      {isPaused && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(6,6,16,0.85)',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          zIndex: 100, fontFamily: 'var(--font-pixel)',
+        }}>
+          <div style={{ fontSize: '2rem', color: 'var(--gold)', marginBottom: '16px' }}>⏸ PAUSED</div>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Press <span style={{ color: '#88ff88' }}>Escape</span> to resume</div>
+          <button
+            className="btn btn-pixel"
+            style={{ marginTop: '24px' }}
+            onClick={() => storeActionsRef.current.setScreen('mainMenu')}
+          >
+            ← Main Menu
+          </button>
         </div>
       )}
 

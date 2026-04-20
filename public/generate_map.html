@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html>
+<head><title>Map Generator</title></head>
+<body>
+<canvas id="c" width="200" height="160"></canvas>
+<script>
+// Generate a forest ruins dungeon map PNG
+// Color palette:
+// Black (#000) = wall
+// White (#fff) = floor stone
+// Red (#ff0000) = spawn point
+// Green (#00ff00) = exit point
+// Yellow (#ffff00) = treasure
+// Brown (#784028) = mud
+// Magenta (#ff00ff) = trap
+
+const W = 200, H = 160;
+const canvas = document.getElementById('c');
+canvas.width = W;
+canvas.height = H;
+const ctx = canvas.getContext('2d');
+
+// Fill with black (walls)
+ctx.fillStyle = '#000';
+ctx.fillRect(0, 0, W, H);
+
+// Helper to draw rooms
+function room(x, y, w, h, color = '#ffffff') {
+  ctx.fillStyle = color;
+  ctx.fillRect(x, y, w, h);
+}
+
+// Helper to draw corridors
+function corridorH(x1, x2, y, thickness = 3) {
+  ctx.fillStyle = '#ffffff';
+  const from = Math.min(x1, x2);
+  const to = Math.max(x1, x2);
+  ctx.fillRect(from, y, to - from, thickness);
+}
+
+function corridorV(x, y1, y2, thickness = 3) {
+  ctx.fillStyle = '#ffffff';
+  const from = Math.min(y1, y2);
+  const to = Math.max(y1, y2);
+  ctx.fillRect(x, from, thickness, to - from);
+}
+
+// === FOREST RUINS LAYOUT ===
+
+// Top-left: Overgrown entrance (large open area)
+room(10, 8, 30, 22);
+
+// Top-center: Ruined temple
+room(55, 5, 25, 18);
+
+// Top-right: Watchtower remains
+room(100, 8, 18, 16);
+
+// Top far-right: Hidden grove
+room(140, 10, 22, 20);
+
+// Middle-left: Ancient courtyard (large)
+room(8, 45, 35, 30);
+
+// Middle-center: Collapsed library
+room(60, 40, 20, 22);
+
+// Middle-right: Armory ruins
+room(95, 38, 25, 20);
+
+// Middle far-right: Sacred pool area
+room(135, 42, 28, 25);
+
+// Bottom-left: Underground passage
+room(12, 95, 25, 18);
+
+// Bottom-center-left: Ritual chamber
+room(50, 90, 28, 25);
+
+// Bottom-center-right: Treasury vault
+room(95, 88, 22, 22);
+
+// Bottom-right: Boss arena (large exit room)
+room(132, 90, 35, 30);
+
+// Small connecting rooms
+room(42, 50, 12, 10);  // Between courtyard and library
+room(85, 44, 8, 10);   // Between library and armory
+room(125, 48, 8, 12);  // Between armory and sacred pool
+room(38, 80, 10, 12);  // Between courtyard and passage
+
+// === CORRIDORS ===
+
+// Top row connections
+corridorH(38, 55, 15, 3);    // Entrance to temple
+corridorH(80, 100, 14, 3);   // Temple to watchtower
+corridorH(118, 140, 18, 3);  // Watchtower to grove
+
+// Middle row connections
+corridorH(43, 60, 55, 3);    // Courtyard to library
+corridorH(80, 95, 50, 3);    // Library to armory
+corridorH(120, 135, 52, 3);  // Armory to sacred pool
+
+// Vertical connections (top to middle)
+corridorV(22, 30, 45, 3);    // Entrance down to courtyard
+corridorV(65, 23, 40, 3);    // Temple down to library
+corridorV(108, 24, 38, 3);   // Watchtower down to armory
+corridorV(150, 30, 42, 3);   // Grove down to sacred pool
+
+// Vertical connections (middle to bottom)
+corridorV(25, 75, 95, 3);    // Courtyard to underground
+corridorV(65, 62, 90, 3);    // Library to ritual chamber
+corridorV(105, 58, 88, 3);   // Armory to treasury
+corridorV(148, 67, 90, 3);   // Sacred pool to boss arena
+
+// Bottom row connections
+corridorH(37, 50, 100, 3);   // Underground to ritual
+corridorH(78, 95, 98, 3);    // Ritual to treasury
+corridorH(117, 132, 102, 3); // Treasury to boss arena
+
+// Extra winding corridors for variety
+corridorV(45, 18, 35, 2);    // Secret shortcut near entrance
+corridorH(30, 50, 35, 2);    // Shortcut to temple area
+corridorV(90, 60, 80, 2);    // Secret passage middle
+corridorH(110, 130, 75, 2);  // Side passage right
+
+// === MUD PATCHES (brown) ===
+room(14, 50, 8, 6, '#784028');   // Courtyard mud
+room(62, 93, 6, 5, '#784028');   // Ritual chamber mud
+room(100, 42, 8, 4, '#784028');  // Armory mud
+room(42, 52, 6, 4, '#784028');   // Connecting room mud
+
+// === TRAPS (magenta) ===
+room(68, 55, 3, 3, '#ff00ff');   // Library trap
+room(32, 100, 2, 2, '#ff00ff');  // Underground trap
+room(108, 95, 3, 2, '#ff00ff');  // Treasury trap
+room(85, 48, 2, 2, '#ff00ff');   // Between rooms trap
+
+// === SPECIAL POINTS ===
+
+// Spawn point (red) - top-left entrance
+ctx.fillStyle = '#ff0000';
+ctx.fillRect(18, 16, 3, 3);
+
+// Exit point (green) - bottom-right boss arena
+ctx.fillStyle = '#00ff00';
+ctx.fillRect(150, 108, 3, 3);
+
+// Treasure points (yellow)
+ctx.fillStyle = '#ffff00';
+ctx.fillRect(63, 10, 3, 3);     // Temple treasure
+ctx.fillRect(145, 15, 3, 3);    // Grove treasure
+ctx.fillRect(140, 50, 3, 3);    // Sacred pool treasure
+ctx.fillRect(100, 94, 3, 3);    // Treasury treasure
+
+// Download
+const link = document.createElement('a');
+link.download = 'forest_ruins.png';
+link.href = canvas.toDataURL('image/png');
+link.click();
+
+document.body.innerHTML = '<h2>Map generated! Check downloads.</h2><br>' + 
+  '<img src="' + canvas.toDataURL() + '" style="border:1px solid #666; image-rendering: pixelated; width: 600px;">';
+</script>
+</body>
+</html>

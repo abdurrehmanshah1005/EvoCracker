@@ -55,16 +55,26 @@ export async function generateDungeon(
   width: number,
   height: number,
   floor: number,
-  biome: BiomeType = BiomeType.DUNGEON
+  biome: BiomeType = BiomeType.DUNGEON,
+  mapId: string = 'crypt'
 ): Promise<DungeonData> {
-  // Floor 1: load map directly from /public/assets/maps/floor1_layout.png
-  if (floor === 1) {
-    const fromPng = await generateFloorFromPngLayout(width, height, floor, biome);
+  // Floor 1 with a specific map: load from PNG or handcrafted layout
+  if (floor === 1 && mapId !== 'random') {
+    // Determine which PNG to load based on mapId
+    const mapPaths: Record<string, string[]> = {
+      'crypt': ['/assets/maps/floor1.png', '/assets/maps/floor1_layout.png'],
+      'forest_ruins': ['/assets/maps/forest_ruins.png'],
+    };
+
+    const paths = mapPaths[mapId] ?? mapPaths['crypt'];
+    const fromPng = await generateFloorFromPngLayout(width, height, floor, biome, paths);
     if (fromPng) return fromPng;
 
-    // Fallback if image loading/parsing fails
-    const handcrafted = generateHandcraftedCryptMap(width, height, floor, biome);
-    if (handcrafted) return handcrafted;
+    // Fallback to handcrafted only for crypt
+    if (mapId === 'crypt') {
+      const handcrafted = generateHandcraftedCryptMap(width, height, floor, biome);
+      if (handcrafted) return handcrafted;
+    }
   }
 
   // Initialize tile grid with walls
@@ -153,14 +163,10 @@ async function generateFloorFromPngLayout(
   width: number,
   height: number,
   floor: number,
-  biome: BiomeType
+  biome: BiomeType,
+  layoutPaths: string[] = ['/assets/maps/floor1_layout.png']
 ): Promise<DungeonData | null> {
   if (typeof window === 'undefined') return null;
-
-  const layoutPaths = [
-    '/assets/maps/floor1.png',
-    '/assets/maps/floor1_layout.png',
-  ];
 
   try {
     let image: HTMLImageElement | null = null;

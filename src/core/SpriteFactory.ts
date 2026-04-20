@@ -132,16 +132,78 @@ const ENEMY_SPRITE_MAP: Record<EnemyType, { folder: string; prefix: string }> = 
 };
 
 /**
+ * Remove background color from a sprite sheet image.
+ * Samples the top-left corner pixel as the background color,
+ * then makes all pixels within tolerance transparent.
+ */
+function removeBackground(img: HTMLImageElement, tolerance = 50): HTMLCanvasElement {
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(img, 0, 0);
+
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const pixels = data.data;
+
+  // Sample background color from top-left corner pixel
+  const bgR = pixels[0];
+  const bgG = pixels[1];
+  const bgB = pixels[2];
+
+  for (let i = 0; i < pixels.length; i += 4) {
+    const r = pixels[i];
+    const g = pixels[i + 1];
+    const b = pixels[i + 2];
+
+    // Check if pixel is similar to background color
+    if (
+      Math.abs(r - bgR) <= tolerance &&
+      Math.abs(g - bgG) <= tolerance &&
+      Math.abs(b - bgB) <= tolerance
+    ) {
+      pixels[i + 3] = 0; // Make transparent
+    }
+  }
+
+  ctx.putImageData(data, 0, 0);
+  return canvas;
+}
+
+/**
+ * Load an image and return it with background removed as a Texture.
+ */
+async function loadSpriteSheetWithBgRemoval(path: string): Promise<{ texture: Texture; img: HTMLImageElement } | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const cleanCanvas = removeBackground(img);
+      const tex = Texture.from(cleanCanvas);
+      tex.source.scaleMode = 'nearest';
+      resolve({ texture: tex, img });
+    };
+    img.onerror = () => resolve(null);
+    img.src = path;
+  });
+}
+
+/**
  * Initialize all sprite assets. Call once during game startup.
  */
 export async function initSpriteAssets(): Promise<void> {
   if (assetsInitialized) return;
 
-  // Load each character sprite sheet
+  // Load each character sprite sheet with background removal
   for (const charDef of CHARACTER_DEFS) {
     try {
-      const sheet = await Assets.load(charDef.sheet) as Texture;
-      sheet.source.scaleMode = 'nearest';
+      const result = await loadSpriteSheetWithBgRemoval(charDef.sheet);
+      if (!result) {
+        console.warn(`[SpriteFactory] Failed to load ${charDef.name} (${charDef.sheet})`);
+        continue;
+      }
+
+      const { texture: sheet } = result;
 
       const imgW = sheet.width;
       const imgH = sheet.height;
@@ -167,7 +229,7 @@ export async function initSpriteAssets(): Promise<void> {
         attack: extractRow(charDef.attackRow),
       });
 
-      console.log(`[SpriteFactory] Loaded ${charDef.name}: ${imgW}x${imgH}, frame ${fW}x${fH}`);
+      console.log(`[SpriteFactory] Loaded ${charDef.name}: ${imgW}x${imgH}, frame ${fW}x${fH} (bg removed)`);
     } catch (err) {
       console.warn(`[SpriteFactory] Failed to load ${charDef.name} (${charDef.sheet}):`, err);
     }

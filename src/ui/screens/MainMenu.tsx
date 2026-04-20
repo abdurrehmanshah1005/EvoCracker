@@ -152,7 +152,7 @@ export function MainMenu() {
         <div className="main-menu-buttons">
           <button
             className="btn btn-primary btn-pixel"
-            onClick={() => handleMenuClick('characterSelect')}
+            onClick={() => handleMenuClick('mapSelect')}
           >
             ⚔️ Trial Mode
           </button>

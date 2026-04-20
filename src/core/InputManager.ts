@@ -1,5 +1,6 @@
 // ========================
 // Input Manager — Keyboard + Mouse tracking
+// FIXED: Robust singleton that survives React StrictMode double-mount
 // ========================
 
 export interface InputState {
@@ -23,7 +24,6 @@ export interface InputState {
 
 export class InputManager {
   private static instance: InputManager;
-  private initCount = 0;
 
   private keysDown = new Set<string>();
   private keysPressed = new Set<string>();
@@ -47,12 +47,22 @@ export class InputManager {
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
   private boundContextMenu: (e: Event) => void;
+  private boundVisibilityChange: () => void;
+  private boundWindowBlur: () => void;
+
+  /** Whether event listeners are currently attached */
+  private _listenersAttached = false;
 
   static getInstance(): InputManager {
     if (!InputManager.instance) {
       InputManager.instance = new InputManager();
     }
     return InputManager.instance;
+  }
+
+  /** Whether the input manager has active listeners */
+  get isActive(): boolean {
+    return this._listenersAttached;
   }
 
   private constructor() {
@@ -62,12 +72,16 @@ export class InputManager {
     this.boundMouseDown = this.onMouseDown.bind(this);
     this.boundMouseUp = this.onMouseUp.bind(this);
     this.boundContextMenu = (e: Event) => e.preventDefault();
+    this.boundVisibilityChange = this.onVisibilityChange.bind(this);
+    this.boundWindowBlur = this.onWindowBlur.bind(this);
   }
 
-  /** Attach event listeners to the window */
+  /** Attach event listeners — idempotent, safe to call multiple times */
   init(): void {
-    this.initCount += 1;
-    if (this.initCount > 1) return;
+    // Always reset state to clear stale keys from previous sessions
+    this.resetState();
+
+    if (this._listenersAttached) return;
 
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
@@ -75,13 +89,16 @@ export class InputManager {
     window.addEventListener('mousedown', this.boundMouseDown);
     window.addEventListener('mouseup', this.boundMouseUp);
     window.addEventListener('contextmenu', this.boundContextMenu);
+    // Clear stuck keys when tab becomes hidden or window loses focus
+    document.addEventListener('visibilitychange', this.boundVisibilityChange);
+    window.addEventListener('blur', this.boundWindowBlur);
+
+    this._listenersAttached = true;
   }
 
-  /** Detach event listeners */
+  /** Detach event listeners and clear all state */
   destroy(): void {
-    if (this.initCount === 0) return;
-    this.initCount -= 1;
-    if (this.initCount > 0) return;
+    if (!this._listenersAttached) return;
 
     window.removeEventListener('keydown', this.boundKeyDown);
     window.removeEventListener('keyup', this.boundKeyUp);
@@ -89,7 +106,15 @@ export class InputManager {
     window.removeEventListener('mousedown', this.boundMouseDown);
     window.removeEventListener('mouseup', this.boundMouseUp);
     window.removeEventListener('contextmenu', this.boundContextMenu);
+    document.removeEventListener('visibilitychange', this.boundVisibilityChange);
+    window.removeEventListener('blur', this.boundWindowBlur);
 
+    this._listenersAttached = false;
+    this.resetState();
+  }
+
+  /** Clear all key/mouse state without touching listeners */
+  resetState(): void {
     this.keysDown.clear();
     this.keysPressed.clear();
     this.keysReleased.clear();
@@ -238,5 +263,17 @@ export class InputManager {
   private onMouseUp(e: MouseEvent): void {
     if (e.button === 0) this.mouseLeftDown = false;
     if (e.button === 2) this.mouseRightDown = false;
+  }
+
+  /** When tab loses visibility, release all keys to prevent stuck keys */
+  private onVisibilityChange(): void {
+    if (document.hidden) {
+      this.resetState();
+    }
+  }
+
+  /** When window loses focus, release all keys */
+  private onWindowBlur(): void {
+    this.resetState();
   }
 }

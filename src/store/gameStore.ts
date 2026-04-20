@@ -8,7 +8,7 @@ import type { DungeonData } from '@game/world/DungeonGenerator';
 import type { Genome, PlayerProfile, GenerationStats } from '@ai/evolution/GeneticAlgorithm';
 
 // --- Game State ---
-export type GameScreen = 'mainMenu' | 'characterSelect' | 'playing' | 'algorithmLab' | 'gachaDefense' | 'gacha' | 'settings' | 'leaderboard' | 'evolution' | 'gameOver';
+export type GameScreen = 'mainMenu' | 'mapSelect' | 'characterSelect' | 'playing' | 'algorithmLab' | 'gachaDefense' | 'gacha' | 'settings' | 'leaderboard' | 'evolution' | 'gameOver';
 
 export interface EnemyAnalyticsData {
   entityId: number;
@@ -22,10 +22,23 @@ export interface EnemyAnalyticsData {
   position: { x: number; y: number };
 }
 
+export interface MapInfo {
+  id: string;
+  name: string;
+  description: string;
+  thumbnail: string; // path to preview image
+  layoutPath: string; // path to PNG layout (empty for procedural)
+  isProcedural: boolean;
+}
+
 interface GameState {
   // Screen
   currentScreen: GameScreen;
   setScreen: (screen: GameScreen) => void;
+
+  // Map selection
+  selectedMap: string;
+  setSelectedMap: (mapId: string) => void;
 
   // Character selection (index into the character spritesheet)
   selectedCharacter: number;
@@ -91,6 +104,10 @@ export const useGameStore = create<GameState>((set) => ({
   // Screen
   currentScreen: 'mainMenu',
   setScreen: (screen) => set({ currentScreen: screen }),
+
+  // Map selection
+  selectedMap: 'crypt',
+  setSelectedMap: (mapId) => set({ selectedMap: mapId }),
 
   // Character selection
   selectedCharacter: 0,
@@ -164,5 +181,6 @@ export const useGameStore = create<GameState>((set) => ({
     isPlaying: false,
     isPaused: false,
     currentScreen: 'mainMenu',
+    selectedMap: 'crypt',
   }),
 }));

@@ -92,13 +92,7 @@ const WALL_TILES = {
 
 let tilesetTexture: Texture | null = null;
 const textureCache = new Map<string, Texture>();
-let tilesetLoadRevision = 0;
-
 function getTilesetPathForLoad(basePath: string): string {
-  // During development, force-refresh tileset so replacing tileset.png is reflected immediately.
-  if (import.meta.env.DEV) {
-    return `${basePath}?v=${tilesetLoadRevision}`;
-  }
   return basePath;
 }
 
@@ -106,7 +100,6 @@ function getTilesetPathForLoad(basePath: string): string {
  * Load the tileset spritesheet. Call once during game init.
  */
 export async function loadTileset(): Promise<boolean> {
-  tilesetLoadRevision += 1;
   textureCache.clear();
   tilesetTexture = null;
 
