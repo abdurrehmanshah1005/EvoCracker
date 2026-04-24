@@ -21,26 +21,60 @@ import { createRandomGenome } from '@ai/evolution/GeneticAlgorithm';
 import { EventBus, GameEvents } from '@core/EventBus';
 import type { EnemyBase } from '@game/entities/enemies/EnemyBase';
 import { randomInt } from '@utils/random';
-import { loadTileset, isTilesetLoaded, getTileTexture, getWallTexture, loadItemAnimations, getTiledTileTexture, isTiledTilesetLoaded } from '@core/DungeonTilesetLoader';
+import { loadTileset, isTilesetLoaded, getTileTexture, getWallTexture, loadItemAnimations, getTiledTileTexture, isTiledTilesetLoaded, getTiledTileAnimation, stripTiledFlipFlags } from '@core/DungeonTilesetLoader';
 
 // ===== TILE COLORS — High contrast ==========================
 const TILE_COLORS: Record<number, number> = {
   [TileType.FLOOR_STONE]: 0x3a3a52,
-  [TileType.WALL]:        0x111118,
-  [TileType.FLOOR_MUD]:   0x5a4420,
+  [TileType.WALL]: 0x111118,
+  [TileType.FLOOR_MUD]: 0x5a4420,
   [TileType.FLOOR_WATER]: 0x1a4070,
-  [TileType.FLOOR_TRAP]:  0x6a1818,
-  [TileType.DOOR]:        0x6a5a30,
+  [TileType.FLOOR_TRAP]: 0x6a1818,
+  [TileType.DOOR]: 0x6a5a30,
   [TileType.STAIRS_DOWN]: 0x20aa50,
-  [TileType.STAIRS_UP]:   0x3050aa,
-  [TileType.TREASURE]:    0xaa8820,
+  [TileType.STAIRS_UP]: 0x3050aa,
+  [TileType.TREASURE]: 0xaa8820,
   [TileType.FLOOR_GRASS]: 0x2a5a2a,
-  [TileType.FLOOR_SAND]:  0x6a6a30,
-  [TileType.BRIDGE]:      0x5a3a1a,
+  [TileType.FLOOR_SAND]: 0x6a6a30,
+  [TileType.BRIDGE]: 0x5a3a1a,
 };
 
 const WALL_TOP = 0x1a1a28;
 const FLOOR_GRID_LINE = 0x2a2a40;
+
+const CHEST_ANIM_GIDS = new Set<number>([626, 642]);
+const SPEAR_TRAP_ANIM_GIDS = new Set<number>([255]);
+const WOODEN_TRAPDOOR_ANIM_GIDS = new Set<number>([208, 209, 233, 234]);
+
+type InteractiveAnimKind = 'chest' | 'spear';
+
+interface InteractiveTileAnim {
+  key: string;
+  tileX: number;
+  tileY: number;
+  kind: InteractiveAnimKind;
+  sprite: AnimatedSprite;
+  isActive: boolean;
+  hasBeenOpened: boolean;
+  hasTriggeredDamage: boolean;
+  isWaveTrap: boolean;
+  waveOffsetMs: number;
+  holdMs: number;
+}
+
+interface TrapdoorTileAnim {
+  key: string;
+  tileX: number;
+  tileY: number;
+  sprite: AnimatedSprite;
+  isCollapsed: boolean;
+}
+
+interface TilemapAnimRuntime {
+  interactive: InteractiveTileAnim[];
+  trapdoors: TrapdoorTileAnim[];
+  waveTimeMs: number;
+}
 
 export function GameScreen() {
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -51,6 +85,10 @@ export function GameScreen() {
   const cleanupFnRef = useRef<(() => void) | null>(null);
   const playerDeadRef = useRef(false);
   const isPausedRef = useRef(false);
+  const trapdoorDeathPendingRef = useRef(false);
+  const trapdoorDeathTimerRef = useRef(0);
+  const trapdoorReturnPendingRef = useRef(false);
+  const trapdoorReturnTimerRef = useRef(0);
 
   const [isLoaded, setIsLoaded] = useState(false);
   const isLoadedRef = useRef(false);
@@ -121,6 +159,10 @@ export function GameScreen() {
     // Reset death/pause state
     playerDeadRef.current = false;
     isPausedRef.current = false;
+    trapdoorDeathPendingRef.current = false;
+    trapdoorDeathTimerRef.current = 0;
+    trapdoorReturnPendingRef.current = false;
+    trapdoorReturnTimerRef.current = 0;
 
     // ── Clean up any previous instance (React StrictMode fix) ────
     if (appRef.current) {
@@ -151,420 +193,476 @@ export function GameScreen() {
         return;
       }
 
-    canvasRef.current.appendChild(app.canvas);
-    appRef.current = app;
+      canvasRef.current.appendChild(app.canvas);
+      appRef.current = app;
 
-    // Auto-focus canvas so keyboard events work immediately
-    canvasRef.current.tabIndex = 0;
-    canvasRef.current.style.outline = 'none';
-    canvasRef.current.focus();
+      // Auto-focus canvas so keyboard events work immediately
+      canvasRef.current.tabIndex = 0;
+      canvasRef.current.style.outline = 'none';
+      canvasRef.current.focus();
 
-    const camera = new Camera({ viewportWidth: window.innerWidth, viewportHeight: window.innerHeight });
-    cameraRef.current = camera;
+      const camera = new Camera({ viewportWidth: window.innerWidth, viewportHeight: window.innerHeight });
+      cameraRef.current = camera;
 
-    const input = InputManager.getInstance();
-    input.init();
+      const input = InputManager.getInstance();
+      input.init();
 
-    // ── Load pixel-art assets ──────────────────────────────────────
-    await loadTileset();
-    if (signal.aborted) return;
-    
-    await initSpriteAssets();
-    if (signal.aborted) return;
-    
-    const itemAnims = await loadItemAnimations();
-    if (signal.aborted) return;
+      // ── Load pixel-art assets ──────────────────────────────────────
+      await loadTileset();
+      if (signal.aborted) return;
 
-    // ── Containers ─────────────────────────────────────────────────
-    const worldContainer = new Container();
-    worldContainer.label = 'world';
-    worldContainer.sortableChildren = true;
-    app.stage.addChild(worldContainer);
+      await initSpriteAssets();
+      if (signal.aborted) return;
 
-    const debugOverlay = new Graphics();
-    debugOverlay.zIndex = 50;
-    worldContainer.addChild(debugOverlay);
+      const itemAnims = await loadItemAnimations();
+      if (signal.aborted) return;
 
-    const attackLayer = new Graphics();
-    attackLayer.zIndex = 45;
-    worldContainer.addChild(attackLayer);
-    attackVisualRef.current = attackLayer;
+      // ── Containers ─────────────────────────────────────────────────
+      const worldContainer = new Container();
+      worldContainer.label = 'world';
+      worldContainer.sortableChildren = true;
+      app.stage.addChild(worldContainer);
 
-    // ── Generate dungeon ──────────────────────────────────────────
-    const biome = getBiomeForFloor(currentFloor);
-    const dungeon = await generateDungeon(GRID_COLS, GRID_ROWS, currentFloor, biome, selectedMap);
-    if (signal.aborted) return;
-    
-    storeActionsRef.current.setDungeonData(dungeon);
-    camera.setWorldBounds(dungeon.width * TILE_SIZE, dungeon.height * TILE_SIZE);
+      const debugOverlay = new Graphics();
+      debugOverlay.zIndex = 50;
+      worldContainer.addChild(debugOverlay);
 
-    // ── Pathfinding grid ──────────────────────────────────────────
-    const grid = new Grid(dungeon.width, dungeon.height);
-    for (let y = 0; y < dungeon.height; y++) {
-      for (let x = 0; x < dungeon.width; x++) {
-        grid.setTile(x, y, dungeon.tiles[y][x]);
+      const attackLayer = new Graphics();
+      attackLayer.zIndex = 45;
+      worldContainer.addChild(attackLayer);
+      attackVisualRef.current = attackLayer;
+
+      // ── Generate dungeon ──────────────────────────────────────────
+      const biome = getBiomeForFloor(currentFloor);
+      const dungeon = await generateDungeon(GRID_COLS, GRID_ROWS, currentFloor, biome, selectedMap);
+      if (signal.aborted) return;
+
+      storeActionsRef.current.setDungeonData(dungeon);
+      camera.setWorldBounds(dungeon.width * TILE_SIZE, dungeon.height * TILE_SIZE);
+
+      // ── Pathfinding grid ──────────────────────────────────────────
+      const grid = new Grid(dungeon.width, dungeon.height);
+      for (let y = 0; y < dungeon.height; y++) {
+        for (let x = 0; x < dungeon.width; x++) {
+          grid.setTile(x, y, dungeon.tiles[y][x]);
+        }
       }
-    }
-    gridRef.current = grid;
+      gridRef.current = grid;
 
-    // ── Render tilemap ────────────────────────────────────────────
-    renderTilemap(worldContainer, dungeon.tiles, dungeon.width, dungeon.height, dungeon.tiledLayers, dungeon.tiledFirstGid);
-    renderMarkers(worldContainer, dungeon);
+      // ── Render tilemap ────────────────────────────────────────────
+      const tilemapAnimRuntime = renderTilemap(
+        worldContainer,
+        dungeon.tiles,
+        dungeon.width,
+        dungeon.height,
+        dungeon.tiledLayers,
+        dungeon.tiledFirstGid,
+      );
+      markWaveSpearChunkNearExit(tilemapAnimRuntime, dungeon.exitPoint.x, dungeon.exitPoint.y);
+      renderMarkers(worldContainer, dungeon);
 
-    // ── Player ────────────────────────────────────────────────────
-    const playerSprite = createPlayerSprite(selectedCharacter);
-    playerSprite.container.zIndex = 15;
-    worldContainer.addChild(playerSprite.container);
+      // ── Player ────────────────────────────────────────────────────
+      const playerSprite = createPlayerSprite(selectedCharacter);
+      playerSprite.container.zIndex = 15;
+      worldContainer.addChild(playerSprite.container);
 
-    const spawnX = dungeon.spawnPoint.x;
-    const spawnY = dungeon.spawnPoint.y;
-    playerRef.current.tileX = spawnX;
-    playerRef.current.tileY = spawnY;
-    playerRef.current.pixelX = spawnX * TILE_SIZE + TILE_SIZE / 2;
-    playerRef.current.pixelY = spawnY * TILE_SIZE + TILE_SIZE / 2;
-    playerRef.current.sprite = playerSprite;
-    playerRef.current.state.tileX = spawnX;
-    playerRef.current.state.tileY = spawnY;
-    playerRef.current.health = 100;
-    playerRef.current.kills = 0;
+      const spawnX = dungeon.spawnPoint.x;
+      const spawnY = dungeon.spawnPoint.y;
+      playerRef.current.tileX = spawnX;
+      playerRef.current.tileY = spawnY;
+      playerRef.current.pixelX = spawnX * TILE_SIZE + TILE_SIZE / 2;
+      playerRef.current.pixelY = spawnY * TILE_SIZE + TILE_SIZE / 2;
+      playerRef.current.sprite = playerSprite;
+      playerRef.current.state.tileX = spawnX;
+      playerRef.current.state.tileY = spawnY;
+      playerRef.current.health = 100;
+      playerRef.current.kills = 0;
 
-    playerSprite.container.x = playerRef.current.pixelX;
-    playerSprite.container.y = playerRef.current.pixelY;
-    camera.snapTo(playerRef.current.pixelX, playerRef.current.pixelY);
+      playerSprite.container.x = playerRef.current.pixelX;
+      playerSprite.container.y = playerRef.current.pixelY;
+      camera.snapTo(playerRef.current.pixelX, playerRef.current.pixelY);
 
-    // ── Spawn enemies ─────────────────────────────────────────────
-    // Use remaining character sprites as enemies + original archetypes
-    const otherCharIndices = CHARACTER_DEFS
-      .map((_, i) => i)
-      .filter((i) => i !== selectedCharacter);
+      // ── Spawn enemies ─────────────────────────────────────────────
+      // Use remaining character sprites as enemies + original archetypes
+      const otherCharIndices = CHARACTER_DEFS
+        .map((_, i) => i)
+        .filter((i) => i !== selectedCharacter);
 
-    const enemyTypes = getEnemyTypesForFloor(currentFloor);
-    const maxEnemies = Math.min(dungeon.enemySpawnPoints.length, 6 + currentFloor * 3);
-    const spawnPts = dungeon.enemySpawnPoints.slice(0, maxEnemies);
+      const enemyTypes = getEnemyTypesForFloor(currentFloor);
+      const maxEnemies = Math.min(dungeon.enemySpawnPoints.length, 6 + currentFloor * 3);
+      const spawnPts = dungeon.enemySpawnPoints.slice(0, maxEnemies);
 
-    // Spawn character-based enemies first (one per remaining character)
-    let spawnIdx = 0;
-    for (let ci = 0; ci < otherCharIndices.length && spawnIdx < spawnPts.length; ci++, spawnIdx++) {
-      const pt = spawnPts[spawnIdx];
-      const charIndex = otherCharIndices[ci];
-      const type = enemyTypes[randomInt(0, enemyTypes.length - 1)];
-      const genome = createRandomGenome(Math.max(0, currentFloor - 1));
-      const enemy = createEnemy(type, pt.x, pt.y, genome);
-      // Replace the enemy's sprite with a character sprite
-      enemy.container.removeChildren();
-      const charSprite = createCharacterEnemySprite(charIndex);
-      for (const child of charSprite.container.children) {
-        enemy.container.addChild(child);
-      }
-      enemy.container.zIndex = 10;
-      worldContainer.addChild(enemy.container);
-      enemiesRef.current.push(enemy);
-    }
-
-    // Spawn remaining enemies as normal archetypes
-    for (; spawnIdx < spawnPts.length; spawnIdx++) {
-      const pt = spawnPts[spawnIdx];
-      const type = enemyTypes[randomInt(0, enemyTypes.length - 1)];
-      const genome = createRandomGenome(Math.max(0, currentFloor - 1));
-      const enemy = createEnemy(type, pt.x, pt.y, genome);
-      enemy.container.zIndex = 10;
-      worldContainer.addChild(enemy.container);
-      enemiesRef.current.push(enemy);
-    }
-
-    showNotification(`Floor ${dungeon.floor} — ${dungeon.biome.toUpperCase()} — ${spawnPts.length} enemies!`);
-
-    // ── Events ────────────────────────────────────────────────────
-    const bus = EventBus.getInstance();
-    const unsubNotif = bus.on(GameEvents.NOTIFICATION, (data: unknown) => {
-      const d = data as { msg: string };
-      showNotification(d.msg);
-    });
-
-    isLoadedRef.current = true;
-    setIsLoaded(true);
-
-    // ── Staggered path timers per enemy ───────────────────────────
-    const pathTimers = new Map<string, number>();
-    const PATH_INTERVAL = 0.6;
-
-    let fpsCounter = 0;
-    let fpsTimer = 0;
-    let analyticsTimer = 0;
-    let attackVisualTimer = 0;
-
-    // ══════════════════════════════════════════════════════════════
-    // GAME LOOP
-    // ══════════════════════════════════════════════════════════════
-    app.ticker.add((ticker) => {
-      let dt = ticker.deltaTime / 60;
-      let dtSeconds = ticker.deltaMS / 1000;
-      
-      // Clamp delta time to prevent massive physics jumps on first frame or lag spikes
-      if (dt > 0.1) dt = 0.1;
-      if (dtSeconds > 0.1) dtSeconds = 0.1;
-
-      fpsCounter++; fpsTimer += dt; analyticsTimer += dt;
-
-      if (fpsTimer >= 1) {
-        storeActionsRef.current.setFps(Math.round(fpsCounter / fpsTimer));
-        fpsCounter = 0; fpsTimer = 0;
+      // Spawn character-based enemies first (one per remaining character)
+      let spawnIdx = 0;
+      for (let ci = 0; ci < otherCharIndices.length && spawnIdx < spawnPts.length; ci++, spawnIdx++) {
+        const pt = spawnPts[spawnIdx];
+        const charIndex = otherCharIndices[ci];
+        const type = enemyTypes[randomInt(0, enemyTypes.length - 1)];
+        const genome = createRandomGenome(Math.max(0, currentFloor - 1));
+        const enemy = createEnemy(type, pt.x, pt.y, genome);
+        // Replace the enemy's sprite with a character sprite
+        enemy.container.removeChildren();
+        const charSprite = createCharacterEnemySprite(charIndex);
+        for (const child of charSprite.container.children) {
+          enemy.container.addChild(child);
+        }
+        enemy.container.zIndex = 10;
+        worldContainer.addChild(enemy.container);
+        enemiesRef.current.push(enemy);
       }
 
-      // ── PAUSE / DEATH CHECK ─────────────────────────────────
-      if (input.isKeyJustPressed('escape')) {
-        isPausedRef.current = !isPausedRef.current;
-        storeActionsRef.current.togglePause();
+      // Spawn remaining enemies as normal archetypes
+      for (; spawnIdx < spawnPts.length; spawnIdx++) {
+        const pt = spawnPts[spawnIdx];
+        const type = enemyTypes[randomInt(0, enemyTypes.length - 1)];
+        const genome = createRandomGenome(Math.max(0, currentFloor - 1));
+        const enemy = createEnemy(type, pt.x, pt.y, genome);
+        enemy.container.zIndex = 10;
+        worldContainer.addChild(enemy.container);
+        enemiesRef.current.push(enemy);
       }
-      if (isPausedRef.current || playerDeadRef.current) {
-        input.endFrame();
-        return;
-      }
 
-      // ── PLAYER MOVEMENT ───────────────────────────────────────
-      const p = playerRef.current;
-      const moveVec = input.getMovementVector();
-      const moveX = moveVec.x;
-      const moveY = moveVec.y;
-      const moveSpeed = (p.state.isInvisible ? 200 : 160) * dtSeconds;
+      showNotification(`Floor ${dungeon.floor} — ${dungeon.biome.toUpperCase()} — ${spawnPts.length} enemies!`);
 
-      if (moveX !== 0 || moveY !== 0) {
-        const nextX = p.pixelX + moveX * moveSpeed;
-        const nextY = p.pixelY + moveY * moveSpeed;
+      // ── Events ────────────────────────────────────────────────────
+      const bus = EventBus.getInstance();
+      const unsubNotif = bus.on(GameEvents.NOTIFICATION, (data: unknown) => {
+        const d = data as { msg: string };
+        showNotification(d.msg);
+      });
 
-        const xTile = Math.floor(nextX / TILE_SIZE);
-        const yTileForX = Math.floor(p.pixelY / TILE_SIZE);
-        const xNode = grid.getNode(xTile, yTileForX);
-        if (xNode && xNode.walkable) {
-          p.pixelX = nextX;
+      isLoadedRef.current = true;
+      setIsLoaded(true);
+
+      // ── Staggered path timers per enemy ───────────────────────────
+      const pathTimers = new Map<string, number>();
+      const PATH_INTERVAL = 0.6;
+
+      let fpsCounter = 0;
+      let fpsTimer = 0;
+      let analyticsTimer = 0;
+      let attackVisualTimer = 0;
+
+      // ══════════════════════════════════════════════════════════════
+      // GAME LOOP
+      // ══════════════════════════════════════════════════════════════
+      app.ticker.add((ticker) => {
+        let dt = ticker.deltaTime / 60;
+        let dtSeconds = ticker.deltaMS / 1000;
+        const p = playerRef.current;
+
+        // Clamp delta time to prevent massive physics jumps on first frame or lag spikes
+        if (dt > 0.1) dt = 0.1;
+        if (dtSeconds > 0.1) dtSeconds = 0.1;
+
+        fpsCounter++; fpsTimer += dt; analyticsTimer += dt;
+
+        if (fpsTimer >= 1) {
+          storeActionsRef.current.setFps(Math.round(fpsCounter / fpsTimer));
+          fpsCounter = 0; fpsTimer = 0;
         }
 
-        const xTileForY = Math.floor(p.pixelX / TILE_SIZE);
-        const yTile = Math.floor(nextY / TILE_SIZE);
-        const yNode = grid.getNode(xTileForY, yTile);
-        if (yNode && yNode.walkable) {
-          p.pixelY = nextY;
+        // ── Trapdoor death → menu transition timer ───────────────
+        if (trapdoorReturnPendingRef.current) {
+          trapdoorReturnTimerRef.current -= dtSeconds;
+          if (trapdoorReturnTimerRef.current <= 0) {
+            trapdoorReturnPendingRef.current = false;
+            storeActionsRef.current.setScreen('mainMenu');
+          }
+          input.endFrame();
+          return;
         }
 
-        p.tileX = Math.floor(p.pixelX / TILE_SIZE);
-        p.tileY = Math.floor(p.pixelY / TILE_SIZE);
-        p.state.tileX = p.tileX;
-        p.state.tileY = p.tileY;
+        // ── Trapdoor fall pause → death ───────────────────────────
+        if (trapdoorDeathPendingRef.current) {
+          trapdoorDeathTimerRef.current -= dtSeconds;
+          if (trapdoorDeathTimerRef.current <= 0) {
+            trapdoorDeathPendingRef.current = false;
+            p.health = 0;
+            storeActionsRef.current.setPlayerHealth(0);
+            playerDeadRef.current = true;
+            showNotification('💀 You died! Game Over');
+            trapdoorReturnPendingRef.current = true;
+            trapdoorReturnTimerRef.current = 1.5;
+          }
+          input.endFrame();
+          return;
+        }
 
-        p.sprite?.setAnimation('walk');
-        if (moveX < 0) p.sprite?.setFlipX(true);
-        if (moveX > 0) p.sprite?.setFlipX(false);
-      } else {
-        p.sprite?.setAnimation('idle');
-      }
+        // ── PAUSE / DEATH CHECK ─────────────────────────────────
+        if (input.isKeyJustPressed('escape')) {
+          isPausedRef.current = !isPausedRef.current;
+          storeActionsRef.current.togglePause();
+        }
+        if (isPausedRef.current || playerDeadRef.current) {
+          input.endFrame();
+          return;
+        }
 
-      p.sprite!.container.x = p.pixelX;
-      p.sprite!.container.y = p.pixelY;
-      p.sprite?.setAlpha(p.state.isInvisible ? 0.3 : 1);
+        // ── PLAYER MOVEMENT ───────────────────────────────────────
+        const moveVec = input.getMovementVector();
+        const moveX = moveVec.x;
+        const moveY = moveVec.y;
+        const moveSpeed = (p.state.isInvisible ? 200 : 160) * dtSeconds;
 
-      // ── Pulsing glow on player ─────────────────────────────────
-      const glowChild = p.sprite?.container.getChildByLabel('glow') as Graphics | null;
-      if (glowChild) {
-        const pulse = 0.8 + Math.sin(Date.now() * 0.004) * 0.2;
-        glowChild.scale.set(pulse);
-      }
+        if (moveX !== 0 || moveY !== 0) {
+          const nextX = p.pixelX + moveX * moveSpeed;
+          const nextY = p.pixelY + moveY * moveSpeed;
 
-      // ── PLAYER ATTACK (Space) ──────────────────────────────────
-      if (p.attackCooldown > 0) p.attackCooldown -= dtSeconds;
+          const xTile = Math.floor(nextX / TILE_SIZE);
+          const yTileForX = Math.floor(p.pixelY / TILE_SIZE);
+          const xNode = grid.getNode(xTile, yTileForX);
+          if (xNode && xNode.walkable) {
+            p.pixelX = nextX;
+          }
 
-      if (input.isCodeJustPressed('Space') && p.attackCooldown <= 0) {
-        p.attackCooldown = 0.4;
-        p.sprite?.setAnimation('attack');
+          const xTileForY = Math.floor(p.pixelX / TILE_SIZE);
+          const yTile = Math.floor(nextY / TILE_SIZE);
+          const yNode = grid.getNode(xTileForY, yTile);
+          if (yNode && yNode.walkable) {
+            p.pixelY = nextY;
+          }
 
-        let hitCount = 0;
+          p.tileX = Math.floor(p.pixelX / TILE_SIZE);
+          p.tileY = Math.floor(p.pixelY / TILE_SIZE);
+          p.state.tileX = p.tileX;
+          p.state.tileY = p.tileY;
+
+          p.sprite?.setAnimation('walk');
+          if (moveX < 0) p.sprite?.setFlipX(true);
+          if (moveX > 0) p.sprite?.setFlipX(false);
+        } else {
+          p.sprite?.setAnimation('idle');
+        }
+
+        p.sprite!.container.x = p.pixelX;
+        p.sprite!.container.y = p.pixelY;
+        p.sprite?.setAlpha(p.state.isInvisible ? 0.3 : 1);
+
+        // ── Pulsing glow on player ─────────────────────────────────
+        const glowChild = p.sprite?.container.getChildByLabel('glow') as Graphics | null;
+        if (glowChild) {
+          const pulse = 0.8 + Math.sin(Date.now() * 0.004) * 0.2;
+          glowChild.scale.set(pulse);
+        }
+
+        // ── PLAYER ATTACK (Space) ──────────────────────────────────
+        if (p.attackCooldown > 0) p.attackCooldown -= dtSeconds;
+
+        if (input.isCodeJustPressed('Space') && p.attackCooldown <= 0) {
+          const trapdoor = getTrapdoorAt(tilemapAnimRuntime, p.tileX, p.tileY);
+          if (trapdoor && !trapdoor.isCollapsed) {
+            triggerTrapdoorCollapseGroup(tilemapAnimRuntime, trapdoor);
+            trapdoorDeathPendingRef.current = true;
+            trapdoorDeathTimerRef.current = 0.75;
+            showNotification('🕳️ Trapdoor opened!');
+            input.endFrame();
+            return;
+          }
+
+          p.attackCooldown = 0.4;
+          p.sprite?.setAnimation('attack');
+
+          let hitCount = 0;
+          for (const enemy of enemiesRef.current) {
+            if (!enemy.isAlive) continue;
+            const dx = enemy.tileX - p.tileX;
+            const dy = enemy.tileY - p.tileY;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist <= p.attackRange) {
+              enemy.takeDamage(p.attackDamage);
+              hitCount++;
+              if (!enemy.isAlive) {
+                p.kills++;
+                addScore(100 + currentFloor * 50);
+                showNotification(`⚔️ Killed ${enemy.type}! +${100 + currentFloor * 50} pts`);
+              }
+            }
+          }
+
+          attackVisualTimer = 0.2;
+          attackLayer.clear();
+          attackLayer.circle(p.pixelX, p.pixelY, p.attackRange * TILE_SIZE);
+          attackLayer.stroke({ color: hitCount > 0 ? 0xff4444 : 0x44ddff, width: 2, alpha: 0.6 });
+          attackLayer.circle(p.pixelX, p.pixelY, 8);
+          attackLayer.fill({ color: 0xffffff, alpha: 0.4 });
+        }
+
+        if (attackVisualTimer > 0) {
+          attackVisualTimer -= dt;
+          if (attackVisualTimer <= 0) attackLayer.clear();
+        }
+
+        // ── ITEMS ──────────────────────────────────────────────────
+        updateItems(p.items, p.state, dt);
+        const itemCodes = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
+        for (let i = 0; i < itemCodes.length; i++) {
+          if (!input.isCodeJustPressed(itemCodes[i])) continue;
+          const item = p.items[i];
+          if (item && item.currentCooldown <= 0) {
+            item.use(p.state, enemiesRef.current, grid);
+            item.currentCooldown = item.cooldown;
+          }
+        }
+
+        // ── VISION SYSTEM ──────────────────────────────────────────
+        updateVision(
+          enemiesRef.current, p.tileX, p.tileY,
+          p.state.isInvisible || p.state.isHiding, grid, dt
+        );
+
+        // ── ENEMY AI + MOVEMENT ────────────────────────────────────
         for (const enemy of enemiesRef.current) {
           if (!enemy.isAlive) continue;
-          const dx = enemy.tileX - p.tileX;
-          const dy = enemy.tileY - p.tileY;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          if (dist <= p.attackRange) {
-            enemy.takeDamage(p.attackDamage);
-            hitCount++;
-            if (!enemy.isAlive) {
-              p.kills++;
-              addScore(100 + currentFloor * 50);
-              showNotification(`⚔️ Killed ${enemy.type}! +${100 + currentFloor * 50} pts`);
+
+          let timer = pathTimers.get(enemy.id) ?? 0;
+          timer -= dt;
+          pathTimers.set(enemy.id, timer);
+
+          if (timer <= 0) {
+            pathTimers.set(enemy.id, PATH_INTERVAL + Math.random() * 0.3);
+
+            let targetX = enemy.homeX;
+            let targetY = enemy.homeY;
+
+            if (enemy.alertState === AlertState.CHASING || enemy.alertState === AlertState.ALERT) {
+              targetX = enemy.blackboard.lastKnownPlayerX >= 0
+                ? enemy.blackboard.lastKnownPlayerX : p.tileX;
+              targetY = enemy.blackboard.lastKnownPlayerY >= 0
+                ? enemy.blackboard.lastKnownPlayerY : p.tileY;
+            } else if (enemy.alertState === AlertState.SUSPICIOUS) {
+              targetX = enemy.blackboard.lastKnownPlayerX >= 0
+                ? enemy.blackboard.lastKnownPlayerX : enemy.homeX;
+              targetY = enemy.blackboard.lastKnownPlayerY >= 0
+                ? enemy.blackboard.lastKnownPlayerY : enemy.homeY;
+            } else if (enemy.alertState === AlertState.FLEEING) {
+              const fdx = enemy.tileX - p.tileX;
+              const fdy = enemy.tileY - p.tileY;
+              targetX = Math.max(1, Math.min(dungeon.width - 2, enemy.tileX + fdx * 4));
+              targetY = Math.max(1, Math.min(dungeon.height - 2, enemy.tileY + fdy * 4));
+            } else {
+              if (!enemy.patrolTarget || (enemy.tileX === enemy.patrolTarget.x && enemy.tileY === enemy.patrolTarget.y)) {
+                enemy.patrolTarget = enemy.getPatrolTarget(grid);
+              }
+              if (enemy.patrolTarget) {
+                targetX = enemy.patrolTarget.x;
+                targetY = enemy.patrolTarget.y;
+              }
+            }
+
+            enemy.requestPath(grid, targetX, targetY);
+          }
+
+          enemy.update(dt, grid, p.tileX, p.tileY);
+
+          // ── Enemy attacks player on contact ──────────────────────
+          if (!p.state.isInvisible && enemy.attackTimer <= 0) {
+            const edx = enemy.tileX - p.tileX;
+            const edy = enemy.tileY - p.tileY;
+            const edist = Math.sqrt(edx * edx + edy * edy);
+            if (edist <= 1.5) {
+              enemy.attackTimer = enemy.attackCooldown;
+              const dmg = enemy.attackDamage;
+              enemy.performance.damageDealt += dmg;
+              p.health = Math.max(0, p.health - dmg);
+              storeActionsRef.current.setPlayerHealth(p.health);
+
+              p.sprite!.container.tint = 0xff4444;
+              setTimeout(() => { p.sprite!.container.tint = 0xffffff; }, 200);
+
+              if (p.health <= 0) {
+                playerDeadRef.current = true;
+                showNotification('💀 You died! Game Over');
+                setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 2000);
+              }
             }
           }
         }
 
-        attackVisualTimer = 0.2;
-        attackLayer.clear();
-        attackLayer.circle(p.pixelX, p.pixelY, p.attackRange * TILE_SIZE);
-        attackLayer.stroke({ color: hitCount > 0 ? 0xff4444 : 0x44ddff, width: 2, alpha: 0.6 });
-        attackLayer.circle(p.pixelX, p.pixelY, 8);
-        attackLayer.fill({ color: 0xffffff, alpha: 0.4 });
-      }
+        // ── REMOVE DEAD ENEMIES ────────────────────────────────────
+        enemiesRef.current = enemiesRef.current.filter((e) => e.isAlive);
 
-      if (attackVisualTimer > 0) {
-        attackVisualTimer -= dt;
-        if (attackVisualTimer <= 0) attackLayer.clear();
-      }
-
-      // ── ITEMS ──────────────────────────────────────────────────
-      updateItems(p.items, p.state, dt);
-      const itemCodes = ['Digit1', 'Digit2', 'Digit3', 'Digit4'];
-      for (let i = 0; i < itemCodes.length; i++) {
-        if (!input.isCodeJustPressed(itemCodes[i])) continue;
-        const item = p.items[i];
-        if (item && item.currentCooldown <= 0) {
-          item.use(p.state, enemiesRef.current, grid);
-          item.currentCooldown = item.cooldown;
-        }
-      }
-
-      // ── VISION SYSTEM ──────────────────────────────────────────
-      updateVision(
-        enemiesRef.current, p.tileX, p.tileY,
-        p.state.isInvisible || p.state.isHiding, grid, dt
-      );
-
-      // ── ENEMY AI + MOVEMENT ────────────────────────────────────
-      for (const enemy of enemiesRef.current) {
-        if (!enemy.isAlive) continue;
-
-        let timer = pathTimers.get(enemy.id) ?? 0;
-        timer -= dt;
-        pathTimers.set(enemy.id, timer);
-
-        if (timer <= 0) {
-          pathTimers.set(enemy.id, PATH_INTERVAL + Math.random() * 0.3);
-
-          let targetX = enemy.homeX;
-          let targetY = enemy.homeY;
-
-          if (enemy.alertState === AlertState.CHASING || enemy.alertState === AlertState.ALERT) {
-            targetX = enemy.blackboard.lastKnownPlayerX >= 0
-              ? enemy.blackboard.lastKnownPlayerX : p.tileX;
-            targetY = enemy.blackboard.lastKnownPlayerY >= 0
-              ? enemy.blackboard.lastKnownPlayerY : p.tileY;
-          } else if (enemy.alertState === AlertState.SUSPICIOUS) {
-            targetX = enemy.blackboard.lastKnownPlayerX >= 0
-              ? enemy.blackboard.lastKnownPlayerX : enemy.homeX;
-            targetY = enemy.blackboard.lastKnownPlayerY >= 0
-              ? enemy.blackboard.lastKnownPlayerY : enemy.homeY;
-          } else if (enemy.alertState === AlertState.FLEEING) {
-            const fdx = enemy.tileX - p.tileX;
-            const fdy = enemy.tileY - p.tileY;
-            targetX = Math.max(1, Math.min(dungeon.width - 2, enemy.tileX + fdx * 4));
-            targetY = Math.max(1, Math.min(dungeon.height - 2, enemy.tileY + fdy * 4));
-          } else {
-            if (!enemy.patrolTarget || (enemy.tileX === enemy.patrolTarget.x && enemy.tileY === enemy.patrolTarget.y)) {
-              enemy.patrolTarget = enemy.getPatrolTarget(grid);
-            }
-            if (enemy.patrolTarget) {
-              targetX = enemy.patrolTarget.x;
-              targetY = enemy.patrolTarget.y;
-            }
+        // ── CHECK FLOOR COMPLETE ───────────────────────────────────
+        if (isLoadedRef.current && enemiesRef.current.length === 0 && spawnPts.length > 0) {
+          showNotification(`✅ Floor ${dungeon.floor} cleared! Find the exit (green glow)`);
+          if (p.tileX === dungeon.exitPoint.x && p.tileY === dungeon.exitPoint.y) {
+            showNotification('🚪 Next floor!');
           }
-
-          enemy.requestPath(grid, targetX, targetY);
         }
 
-        enemy.update(dt, grid, p.tileX, p.tileY);
-
-        // ── Enemy attacks player on contact ──────────────────────
-        if (!p.state.isInvisible && enemy.attackTimer <= 0) {
-          const edx = enemy.tileX - p.tileX;
-          const edy = enemy.tileY - p.tileY;
-          const edist = Math.sqrt(edx * edx + edy * edy);
-          if (edist <= 1.5) {
-            enemy.attackTimer = enemy.attackCooldown;
-            const dmg = enemy.attackDamage;
-            enemy.performance.damageDealt += dmg;
-            p.health = Math.max(0, p.health - dmg);
-            storeActionsRef.current.setPlayerHealth(p.health);
-
-            p.sprite!.container.tint = 0xff4444;
-            setTimeout(() => { p.sprite!.container.tint = 0xffffff; }, 200);
-
-            if (p.health <= 0) {
-              playerDeadRef.current = true;
-              showNotification('💀 You died! Game Over');
-              setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 2000);
+        // ── TRAP DAMAGE ────────────────────────────────────────────
+        const playerTile = dungeon.tiles[p.tileY]?.[p.tileX];
+        const playerOnInteractiveSpear = isPlayerOnInteractiveSpear(tilemapAnimRuntime, p.tileX, p.tileY);
+        if (playerTile === TileType.FLOOR_TRAP && !playerOnInteractiveSpear) {
+          p.health = Math.max(0, p.health - 15 * dt);
+          storeActionsRef.current.setPlayerHealth(Math.round(p.health));
+          for (const enemy of enemiesRef.current) {
+            if (enemy.tileX === p.tileX && enemy.tileY === p.tileY) {
+              enemy.stun(1);
             }
           }
         }
-      }
 
-      // ── REMOVE DEAD ENEMIES ────────────────────────────────────
-      enemiesRef.current = enemiesRef.current.filter((e) => e.isAlive);
-
-      // ── CHECK FLOOR COMPLETE ───────────────────────────────────
-      if (isLoadedRef.current && enemiesRef.current.length === 0 && spawnPts.length > 0) {
-        showNotification(`✅ Floor ${dungeon.floor} cleared! Find the exit (green glow)`);
-        if (p.tileX === dungeon.exitPoint.x && p.tileY === dungeon.exitPoint.y) {
-          showNotification('🚪 Next floor!');
-        }
-      }
-
-      // ── TRAP DAMAGE ────────────────────────────────────────────
-      const playerTile = dungeon.tiles[p.tileY]?.[p.tileX];
-      if (playerTile === TileType.FLOOR_TRAP) {
-        p.health = Math.max(0, p.health - 15 * dt);
-        storeActionsRef.current.setPlayerHealth(Math.round(p.health));
-        for (const enemy of enemiesRef.current) {
-          if (enemy.tileX === p.tileX && enemy.tileY === p.tileY) {
-            enemy.stun(1);
+        updateInteractiveTileAnimations(tilemapAnimRuntime, p.tileX, p.tileY, dtSeconds, (damage) => {
+          p.health = Math.max(0, p.health - damage);
+          storeActionsRef.current.setPlayerHealth(Math.round(p.health));
+          if (p.health <= 0 && !playerDeadRef.current) {
+            playerDeadRef.current = true;
+            showNotification('💀 You died! Game Over');
+            setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 2000);
           }
+        });
+
+        // ── ANALYTICS ──────────────────────────────────────────────
+        if (analyticsTimer > 0.5) {
+          analyticsTimer = 0;
+          storeActionsRef.current.setEnemyAnalytics(
+            enemiesRef.current.slice(0, 15).map((e) => e.getAnalyticsSnapshot())
+          );
         }
-      }
 
-      // ── ANALYTICS ──────────────────────────────────────────────
-      if (analyticsTimer > 0.5) {
-        analyticsTimer = 0;
-        storeActionsRef.current.setEnemyAnalytics(
-          enemiesRef.current.slice(0, 15).map((e) => e.getAnalyticsSnapshot())
-        );
-      }
+        // ── DEBUG OVERLAYS ─────────────────────────────────────────
+        drawDebugOverlays(debugOverlay, enemiesRef.current, p.tileX, p.tileY, showPathsRef.current, showFOVRef.current);
 
-      // ── DEBUG OVERLAYS ─────────────────────────────────────────
-      drawDebugOverlays(debugOverlay, enemiesRef.current, p.tileX, p.tileY, showPathsRef.current, showFOVRef.current);
+        // ── CAMERA ─────────────────────────────────────────────────
+        camera.follow(p.pixelX, p.pixelY, dt);
+        worldContainer.x = -camera.x;
+        worldContainer.y = -camera.y;
 
-      // ── CAMERA ─────────────────────────────────────────────────
-      camera.follow(p.pixelX, p.pixelY, dt);
-      worldContainer.x = -camera.x;
-      worldContainer.y = -camera.y;
+        const worldMouse = camera.screenToWorld(input.getState().mouse.x, input.getState().mouse.y);
+        input.setWorldMouse(worldMouse.x, worldMouse.y);
 
-      const worldMouse = camera.screenToWorld(input.getState().mouse.x, input.getState().mouse.y);
-      input.setWorldMouse(worldMouse.x, worldMouse.y);
+        // ── HOTKEYS ────────────────────────────────────────────────
+        if (input.isCodeJustPressed('Backquote')) storeActionsRef.current.toggleAnalytics();
 
-      // ── HOTKEYS ────────────────────────────────────────────────
-      if (input.isCodeJustPressed('Backquote')) storeActionsRef.current.toggleAnalytics();
+        input.endFrame();
+      });
 
-      input.endFrame();
-    });
+      // ── Resize ────────────────────────────────────────────────────
+      const onResize = () => {
+        app.renderer.resize(window.innerWidth, window.innerHeight);
+        camera.setViewport(window.innerWidth, window.innerHeight);
+      };
+      window.addEventListener('resize', onResize);
 
-    // ── Resize ────────────────────────────────────────────────────
-    const onResize = () => {
-      app.renderer.resize(window.innerWidth, window.innerHeight);
-      camera.setViewport(window.innerWidth, window.innerHeight);
-    };
-    window.addEventListener('resize', onResize);
+      // Return cleanup function
+      const cleanup = () => {
+        unsubNotif();
+        window.removeEventListener('resize', onResize);
+        input.destroy();
+        try { app.destroy(true); } catch { /* already destroyed */ }
+        appRef.current = null;
+        enemiesRef.current = [];
+        isLoadedRef.current = false;
+        setIsLoaded(false);
+      };
 
-    // Return cleanup function
-    const cleanup = () => {
-      unsubNotif();
-      window.removeEventListener('resize', onResize);
-      input.destroy();
-      try { app.destroy(true); } catch { /* already destroyed */ }
-      appRef.current = null;
-      enemiesRef.current = [];
-      isLoadedRef.current = false;
-      setIsLoaded(false);
-    };
-
-    return cleanup;
+      return cleanup;
     } catch (e) {
       console.error("GameScreen initialization failed:", e);
       showNotification(`Game failed to load: ${e}`);
     }
-  // Only re-init when floor, character, or map changes
+    // Only re-init when floor, character, or map changes
   }, [currentFloor, selectedCharacter, selectedMap, showNotification]);
 
   // ── Effect: init game with proper StrictMode cleanup ────────────
@@ -661,7 +759,13 @@ function renderTilemap(
   h: number,
   tiledLayers?: TiledLayerData[],
   tiledFirstGid?: number,
-) {
+): TilemapAnimRuntime {
+  const runtime: TilemapAnimRuntime = {
+    interactive: [],
+    trapdoors: [],
+    waveTimeMs: 0,
+  };
+
   const tileContainer = new Container();
   tileContainer.label = 'tiles';
   tileContainer.zIndex = 0;
@@ -683,14 +787,84 @@ function renderTilemap(
           const px = x * TILE_SIZE;
           const py = y * TILE_SIZE;
 
-          const tex = getTiledTileTexture(rawGid, firstGid);
-          if (tex) {
-            const sprite = new Sprite(tex);
-            sprite.x = px;
-            sprite.y = py;
-            sprite.width = TILE_SIZE;
-            sprite.height = TILE_SIZE;
-            layerContainer.addChild(sprite);
+          // Check for Tiled animation on this tile
+          const animFrames = getTiledTileAnimation(rawGid);
+          if (animFrames && animFrames.length >= 2) {
+            const cleanGid = stripTiledFlipFlags(rawGid);
+            const animSprite = new AnimatedSprite(animFrames);
+            animSprite.x = px;
+            animSprite.y = py;
+            animSprite.width = TILE_SIZE;
+            animSprite.height = TILE_SIZE;
+
+            if (WOODEN_TRAPDOOR_ANIM_GIDS.has(cleanGid)) {
+              // Slow down wooden trapdoor animation.
+              animSprite.animationSpeed = 0.6;
+            }
+
+            const key = `${x},${y}`;
+            if (CHEST_ANIM_GIDS.has(cleanGid)) {
+              // Chest: play opening once, then stay open while player remains nearby.
+              animSprite.loop = false;
+              animSprite.gotoAndStop(0);
+              runtime.interactive.push({
+                key,
+                tileX: x,
+                tileY: y,
+                kind: 'chest',
+                sprite: animSprite,
+                isActive: false,
+                hasBeenOpened: false,
+                hasTriggeredDamage: false,
+                isWaveTrap: false,
+                waveOffsetMs: 0,
+                holdMs: 0,
+              });
+            } else if (SPEAR_TRAP_ANIM_GIDS.has(cleanGid)) {
+              // Spear trap: play once after trigger; reset when player leaves tile.
+              animSprite.loop = false;
+              animSprite.gotoAndStop(0);
+              runtime.interactive.push({
+                key,
+                tileX: x,
+                tileY: y,
+                kind: 'spear',
+                sprite: animSprite,
+                isActive: false,
+                hasBeenOpened: false,
+                hasTriggeredDamage: false,
+                isWaveTrap: false,
+                waveOffsetMs: 0,
+                holdMs: 0,
+              });
+            } else if (WOODEN_TRAPDOOR_ANIM_GIDS.has(cleanGid)) {
+              // Trapdoor stays closed until the player attacks while standing on it.
+              animSprite.loop = false;
+              animSprite.gotoAndStop(0);
+              runtime.trapdoors.push({
+                key,
+                tileX: x,
+                tileY: y,
+                sprite: animSprite,
+                isCollapsed: false,
+              });
+            } else {
+              // Keep ambient animations globally synchronized.
+              animSprite.loop = true;
+              animSprite.gotoAndPlay(0);
+            }
+
+            layerContainer.addChild(animSprite);
+          } else {
+            const tex = getTiledTileTexture(rawGid, firstGid);
+            if (tex) {
+              const sprite = new Sprite(tex);
+              sprite.x = px;
+              sprite.y = py;
+              sprite.width = TILE_SIZE;
+              sprite.height = TILE_SIZE;
+              layerContainer.addChild(sprite);
+            }
           }
         }
       }
@@ -699,7 +873,7 @@ function renderTilemap(
     }
 
     container.addChild(tileContainer);
-    return;
+    return runtime;
   }
 
   // ── Legacy mode: render using TileType → tileset_v2.png mapping ──
@@ -794,6 +968,233 @@ function renderTilemap(
   }
 
   container.addChild(tileContainer);
+  return runtime;
+}
+
+function updateInteractiveTileAnimations(
+  runtime: TilemapAnimRuntime,
+  playerTileX: number,
+  playerTileY: number,
+  dtSeconds: number,
+  onSpearTrapHit: (damage: number) => void,
+) {
+  if (runtime.interactive.length === 0) return;
+
+  const dtMs = dtSeconds * 1000;
+  runtime.waveTimeMs += dtMs;
+
+  const WAVE_PERIOD_MS = 1200;
+  const WAVE_ACTIVE_MS = 350;
+
+  for (const tile of runtime.interactive) {
+    if (tile.kind === 'chest') {
+      if (tile.hasBeenOpened) {
+        tile.isActive = false;
+        continue;
+      }
+
+      const dx = tile.tileX - playerTileX;
+      const dy = tile.tileY - playerTileY;
+      const near = Math.sqrt(dx * dx + dy * dy) <= 1.5;
+
+      if (near) {
+        if (!tile.isActive) {
+          tile.isActive = true;
+          tile.hasBeenOpened = true;
+          tile.sprite.gotoAndPlay(0);
+        }
+      }
+      continue;
+    }
+
+    // Spear trap
+    if (tile.isWaveTrap) {
+      const phase = (runtime.waveTimeMs + tile.waveOffsetMs) % WAVE_PERIOD_MS;
+      const isWaveActive = phase < WAVE_ACTIVE_MS;
+
+      if (isWaveActive && !tile.isActive) {
+        tile.isActive = true;
+        tile.sprite.gotoAndPlay(0);
+      } else if (!isWaveActive && tile.isActive) {
+        tile.isActive = false;
+        tile.hasTriggeredDamage = false;
+        tile.sprite.gotoAndStop(0);
+      }
+
+      const standingOnTrap = tile.tileX === playerTileX && tile.tileY === playerTileY;
+      if (isWaveActive && standingOnTrap && !tile.hasTriggeredDamage) {
+        tile.hasTriggeredDamage = true;
+        onSpearTrapHit(999);
+      }
+      continue;
+    }
+
+    const standingOnTrap = tile.tileX === playerTileX && tile.tileY === playerTileY;
+    if (standingOnTrap) {
+      tile.holdMs += dtMs;
+      if (!tile.isActive && tile.holdMs >= 25) {
+        tile.isActive = true;
+        tile.sprite.gotoAndPlay(0);
+      }
+      if (tile.isActive && !tile.hasTriggeredDamage) {
+        tile.hasTriggeredDamage = true;
+        onSpearTrapHit(5);
+      }
+    } else {
+      tile.holdMs = 0;
+      tile.hasTriggeredDamage = false;
+      if (tile.isActive) {
+        tile.isActive = false;
+        tile.sprite.gotoAndStop(0);
+      }
+    }
+  }
+}
+
+function isPlayerOnInteractiveSpear(
+  runtime: TilemapAnimRuntime,
+  playerTileX: number,
+  playerTileY: number,
+): boolean {
+  return runtime.interactive.some((tile) => (
+    tile.kind === 'spear' && tile.tileX === playerTileX && tile.tileY === playerTileY
+  ));
+}
+
+function getTrapdoorAt(
+  runtime: TilemapAnimRuntime,
+  playerTileX: number,
+  playerTileY: number,
+): TrapdoorTileAnim | null {
+  return runtime.trapdoors.find((tile) => (
+    tile.tileX === playerTileX && tile.tileY === playerTileY
+  )) ?? null;
+}
+
+function triggerTrapdoorCollapse(tile: TrapdoorTileAnim) {
+  tile.isCollapsed = true;
+  tile.sprite.loop = false;
+  tile.sprite.gotoAndPlay(0);
+
+  const openFrame = Math.max(0, tile.sprite.totalFrames - 1);
+  tile.sprite.onFrameChange = (currentFrame) => {
+    if (currentFrame >= openFrame) {
+      tile.sprite.gotoAndStop(openFrame);
+      tile.sprite.onFrameChange = undefined;
+    }
+  };
+}
+
+function triggerTrapdoorCollapseGroup(runtime: TilemapAnimRuntime, seed: TrapdoorTileAnim) {
+  const byKey = new Map<string, TrapdoorTileAnim>();
+  for (const tile of runtime.trapdoors) {
+    byKey.set(tile.key, tile);
+  }
+
+  const stack: TrapdoorTileAnim[] = [seed];
+  const visited = new Set<string>();
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (visited.has(current.key)) continue;
+    visited.add(current.key);
+
+    if (!current.isCollapsed) {
+      triggerTrapdoorCollapse(current);
+    }
+
+    const neighbors = [
+      `${current.tileX + 1},${current.tileY}`,
+      `${current.tileX - 1},${current.tileY}`,
+      `${current.tileX},${current.tileY + 1}`,
+      `${current.tileX},${current.tileY - 1}`,
+    ];
+
+    for (const key of neighbors) {
+      const n = byKey.get(key);
+      if (n && !visited.has(key)) {
+        stack.push(n);
+      }
+    }
+  }
+}
+
+function markWaveSpearChunkNearExit(
+  runtime: TilemapAnimRuntime,
+  exitTileX: number,
+  exitTileY: number,
+) {
+  const spearTiles = runtime.interactive.filter((tile) => tile.kind === 'spear');
+  if (spearTiles.length < 2) return;
+
+  const byKey = new Map<string, InteractiveTileAnim>();
+  for (const tile of spearTiles) {
+    byKey.set(tile.key, tile);
+  }
+
+  const visited = new Set<string>();
+  const components: InteractiveTileAnim[][] = [];
+
+  for (const start of spearTiles) {
+    if (visited.has(start.key)) continue;
+
+    const stack: InteractiveTileAnim[] = [start];
+    const component: InteractiveTileAnim[] = [];
+    visited.add(start.key);
+
+    while (stack.length > 0) {
+      const current = stack.pop()!;
+      component.push(current);
+
+      const neighbors = [
+        `${current.tileX + 1},${current.tileY}`,
+        `${current.tileX - 1},${current.tileY}`,
+        `${current.tileX},${current.tileY + 1}`,
+        `${current.tileX},${current.tileY - 1}`,
+      ];
+
+      for (const key of neighbors) {
+        const n = byKey.get(key);
+        if (!n || visited.has(key)) continue;
+        visited.add(key);
+        stack.push(n);
+      }
+    }
+
+    components.push(component);
+  }
+
+  if (components.length === 0) return;
+
+  const candidates = components.filter((c) => c.length >= 3);
+  if (candidates.length === 0) return;
+
+  // Skip components touching the exit tile vicinity (e.g. the single spear near exit).
+  const safeCandidates = candidates.filter((c) => (
+    !c.some((t) => Math.abs(t.tileX - exitTileX) <= 1 && Math.abs(t.tileY - exitTileY) <= 1)
+  ));
+
+  const pool = safeCandidates.length > 0 ? safeCandidates : candidates;
+
+  // Prefer the most right-side spear group near the new right-side exit.
+  let selected = pool[0];
+  let selectedAvgX = pool[0].reduce((sum, t) => sum + t.tileX, 0) / pool[0].length;
+
+  for (let i = 1; i < pool.length; i++) {
+    const c = pool[i];
+    const avgX = c.reduce((sum, t) => sum + t.tileX, 0) / c.length;
+    if (avgX > selectedAvgX) {
+      selected = c;
+      selectedAvgX = avgX;
+    }
+  }
+
+  const maxX = Math.max(...selected.map((t) => t.tileX));
+  for (const tile of selected) {
+    tile.isWaveTrap = true;
+    tile.waveOffsetMs = (maxX - tile.tileX) * 120;
+    tile.sprite.gotoAndStop(0);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -886,3 +1287,7 @@ function drawDebugOverlays(
     }
   }
 }
+function addScore(arg0: number) {
+  throw new Error('Function not implemented.');
+}
+

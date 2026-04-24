@@ -65,8 +65,8 @@ const MIN_LEAF_SIZE = 8;
 
 // Tiled flip flag constants
 const FLIPPED_HORIZONTALLY_FLAG = 0x80000000;
-const FLIPPED_VERTICALLY_FLAG   = 0x40000000;
-const FLIPPED_DIAGONALLY_FLAG   = 0x20000000;
+const FLIPPED_VERTICALLY_FLAG = 0x40000000;
+const FLIPPED_DIAGONALLY_FLAG = 0x20000000;
 const GID_MASK = ~(FLIPPED_HORIZONTALLY_FLAG | FLIPPED_VERTICALLY_FLAG | FLIPPED_DIAGONALLY_FLAG);
 
 function stripFlipFlags(gid: number): number {
@@ -75,11 +75,7 @@ function stripFlipFlags(gid: number): number {
 
 /** Generate a complete dungeon floor */
 export async function generateDungeon(
-  width: number,
-  height: number,
-  floor: number,
-  biome: BiomeType = BiomeType.DUNGEON
-): Promise<DungeonData> {
+  width: number, height: number, floor: number, biome: BiomeType = BiomeType.DUNGEON, selectedMap: string): Promise<DungeonData> {
   // Floor 1: try Tiled JSON map first (grinmap.json)
   if (floor === 1) {
     const fromTiled = await generateFloorFromTiledJson(floor, biome);
@@ -188,32 +184,67 @@ async function generateFloorFromTiledJson(
 
     const mapData = await response.json();
 
-    const mapW: number = mapData.width;
-    const mapH: number = mapData.height;
     const tileWidth: number = mapData.tilewidth;
     const tileHeight: number = mapData.tileheight;
     const firstGid: number = mapData.tilesets?.[0]?.firstgid ?? 1;
 
     if (!mapData.layers || mapData.layers.length === 0) return null;
 
-    console.info(`[DungeonGenerator] Loading Tiled JSON map: ${mapW}x${mapH}, tile size ${tileWidth}x${tileHeight}, firstGid=${firstGid}`);
+    // Use map-level width/height as authoritative dimensions
+    const mapW: number = mapData.width;
+    const mapH: number = mapData.height;
 
-    // Parse layers
-    const tiledLayers: TiledLayerData[] = mapData.layers
-      .filter((l: any) => l.type === 'tilelayer' && l.data)
-      .map((l: any) => ({
-        name: l.name,
-        data: l.data as number[],
-        width: l.width,
-        height: l.height,
-      }));
+    // ── Parse layers — handle both chunked and flat data formats ──
+    // Note: Tiled may export chunks even when infinite=false, so always check chunks first.
+    const tiledLayers: TiledLayerData[] = [];
+
+    for (const l of mapData.layers) {
+      if (l.type !== 'tilelayer') continue;
+
+      if (l.chunks && l.chunks.length > 0) {
+        // Flatten chunks into a single data array using the map bounds
+        const flatData = new Array(mapW * mapH).fill(0);
+
+        for (const chunk of l.chunks) {
+          const cx = chunk.x;
+          const cy = chunk.y;
+          for (let row = 0; row < chunk.height; row++) {
+            for (let col = 0; col < chunk.width; col++) {
+              const tx = cx + col;
+              const ty = cy + row;
+              if (tx < 0 || tx >= mapW || ty < 0 || ty >= mapH) continue;
+              const srcIdx = row * chunk.width + col;
+              const dstIdx = ty * mapW + tx;
+              flatData[dstIdx] = chunk.data[srcIdx];
+            }
+          }
+        }
+
+        tiledLayers.push({
+          name: l.name,
+          data: flatData,
+          width: mapW,
+          height: mapH,
+        });
+      } else if (l.data) {
+        // Flat data array
+        tiledLayers.push({
+          name: l.name,
+          data: l.data as number[],
+          width: l.width,
+          height: l.height,
+        });
+      }
+    }
+
+    if (tiledLayers.length === 0) return null;
+
+    console.info(`[DungeonGenerator] Loading Tiled JSON map: ${mapW}x${mapH}, tile size ${tileWidth}x${tileHeight}, firstGid=${firstGid}`);
 
     // Build walkability from the Walls layer:
     // - GID 0 = no wall tile placed → walkable (floor beneath)
-    // - GID 189 = this is used as "outside/void" markers in this map → not walkable
-    // - GID with flip flags (like 2684354660) = wall tile → not walkable
-    // - Other non-zero GIDs = wall tiles → not walkable
-    // But GID 0 in Wall layer AND GID 0 in Floor layer = void/empty = wall
+    // - Non-zero GID in wall layer → not walkable
+    // - GID 0 in both layers = void/empty = wall
     const floorLayer = tiledLayers.find(l => l.name === 'Floor');
     const wallsLayer = tiledLayers.find(l => l.name === 'Walls');
 
@@ -222,24 +253,14 @@ async function generateFloorFromTiledJson(
       tiles[y] = [];
       for (let x = 0; x < mapW; x++) {
         const idx = y * mapW + x;
-        const floorGid = floorLayer ? stripFlipFlags(floorLayer.data[idx]) : 0;
-        const wallGid = wallsLayer ? stripFlipFlags(wallsLayer.data[idx]) : 0;
+        const floorGid = floorLayer ? stripFlipFlags(floorLayer.data[idx] ?? 0) : 0;
+        const wallGid = wallsLayer ? stripFlipFlags(wallsLayer.data[idx] ?? 0) : 0;
 
-        // Determine tile type for pathfinding:
-        // If wall layer has a wall-like tile (non-zero, and not just empty space marker)
-        // The wall GIDs in this map are: 87 (border), 104 (horizontal wall), 189 (void/outside)
-        // and 2684354660 (flipped wall tile, which strips to a valid GID)
-        //
-        // Simple rule: if the wall layer has a non-zero GID, it's a wall.
-        // Exception: GID 0 in both layers = also a wall (void)
         if (wallGid !== 0) {
-          // Wall layer has something — check if it's a "void" marker or actual wall
           tiles[y][x] = TileType.WALL;
         } else if (floorGid === 0) {
-          // No floor and no wall = void space = wall
           tiles[y][x] = TileType.WALL;
         } else {
-          // Floor tile exists, no wall blocking = walkable floor
           tiles[y][x] = TileType.FLOOR_STONE;
         }
       }
@@ -825,10 +846,10 @@ function generateHandcraftedCryptMap(
 
   // Points of interest
   const spawnPoint = { x: ox + 3, y: oy + 4 };
-  const exitPoint = { x: ox + 41, y: oy + 27 };
+  const exitPoint = { x: ox + 42, y: oy + 16 };
   const treasurePoints = [
     { x: ox + 39, y: oy + 16 },
-    { x: ox + 41, y: oy + 16 },
+    { x: ox + 41, y: oy + 27 },
     { x: ox + 42, y: oy + 17 },
   ];
 
@@ -874,8 +895,8 @@ function generateHandcraftedCryptMap(
     mkRoom(1, 23, 9, 8, 'normal'),
     mkRoom(10, 23, 14, 7, 'normal'),
     mkRoom(27, 24, 7, 6, 'normal'),
-    mkRoom(37, 13, 8, 8, 'treasure'),
-    mkRoom(37, 24, 8, 7, 'exit'),
+    mkRoom(37, 13, 8, 8, 'exit'),
+    mkRoom(37, 24, 8, 7, 'normal'),
   ];
 
   return {
