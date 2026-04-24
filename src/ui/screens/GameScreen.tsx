@@ -206,7 +206,7 @@ export function GameScreen() {
       const camera = new Camera({ 
         viewportWidth: window.innerWidth, 
         viewportHeight: window.innerHeight, 
-        zoom: 3.0,
+        zoom: 1.8,
         deadzoneWidth: 0,
         deadzoneHeight: 0
       });
@@ -487,7 +487,7 @@ export function GameScreen() {
               hitCount++;
               if (!enemy.isAlive) {
                 p.kills++;
-                addScore(100 + currentFloor * 50);
+                storeActionsRef.current.addScore(100 + currentFloor * 50);
                 showNotification(`⚔️ Killed ${enemy.type}! +${100 + currentFloor * 50} pts`);
               }
             }
@@ -1304,7 +1304,3 @@ function drawDebugOverlays(
     }
   }
 }
-function addScore(arg0: number) {
-  throw new Error('Function not implemented.');
-}
-
