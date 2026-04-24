@@ -280,8 +280,8 @@ export const CHARACTER_DEFS: CharacterDef[] = [
     separateSheets: {
       idle:    { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-taunting.png', cols: 4, frameW: 53, frameH: 42 },
       walk:    { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-walk.png',     cols: 10, frameW: 42, frameH: 38 },
-      attack:  { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-jump.png',     cols: 5, frameW: 42, frameH: 48 },
-      special: { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-jump.png',     cols: 5, frameW: 42, frameH: 48 },
+      attack:  { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-jump.png',     cols: 7, frameW: 192, frameH: 80 },
+      special: { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-jump.png',     cols: 7, frameW: 192, frameH: 80 },
     },
   },
   {
@@ -419,10 +419,26 @@ export async function initSpriteAssets(): Promise<void> {
           if (!result) return [];
           const { texture: stripTex } = result;
           const frames: Texture[] = [];
-          for (let col = 0; col < info.cols; col++) {
+
+          // Safety: auto-detect frame dimensions if configured values exceed texture
+          let frameW = info.frameW;
+          let frameH = info.frameH;
+          let cols = info.cols;
+
+          if (frameW * cols > stripTex.width || frameH > stripTex.height) {
+            // Recalculate: assume cols is correct, derive frameW from texture width
+            frameW = Math.floor(stripTex.width / cols);
+            frameH = stripTex.height;
+            console.warn(
+              `[SpriteFactory] Auto-correcting frame size for ${info.path}: ` +
+              `${info.frameW}x${info.frameH} -> ${frameW}x${frameH} (texture: ${stripTex.width}x${stripTex.height})`
+            );
+          }
+
+          for (let col = 0; col < cols; col++) {
             frames.push(new Texture({
               source: stripTex.source,
-              frame: new Rectangle(col * info.frameW, 0, info.frameW, info.frameH),
+              frame: new Rectangle(col * frameW, 0, frameW, frameH),
             }));
           }
           return frames;
@@ -617,7 +633,7 @@ export function createPlayerSprite(characterIndex?: number): GameSprite {
           anims.idle;
 
         if (targetFrames && targetFrames.length > 0) {
-          anim.textures = targetFrames;
+          try { anim.textures = targetFrames; } catch { /* bad textures, keep current */ return; }
         }
 
         if (state === 'walk') {
@@ -725,7 +741,7 @@ export function createCharacterEnemySprite(characterIndex: number): GameSprite {
           state === 'special' ? (anims.special ?? anims.idle) :
           anims.idle;
         if (targetFrames && targetFrames.length > 0) {
-          anim.textures = targetFrames;
+          try { anim.textures = targetFrames; } catch { /* bad textures, keep current */ return; }
         }
         if (state === 'walk') {
           anim.animationSpeed = 0.12;

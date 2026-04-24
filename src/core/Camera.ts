@@ -30,7 +30,7 @@ export class Camera {
       viewportHeight: 600,
       worldWidth: 50 * TILE_SIZE,
       worldHeight: 40 * TILE_SIZE,
-      followSpeed: 0.08,
+      followSpeed: 0.15,
       deadzoneWidth: 60,
       deadzoneHeight: 40,
       zoom: 1,
@@ -38,27 +38,12 @@ export class Camera {
     };
   }
 
-  /** Update camera to follow a target position */
+  /** Update camera to follow a target position — always centering on target */
   follow(targetWorldX: number, targetWorldY: number, dt: number): void {
-    // Apply deadzone — only update target if outside deadzone
-    const screenTargetX = targetWorldX - this.x;
-    const screenTargetY = targetWorldY - this.y;
-    const halfVW = this.config.viewportWidth / (2 * this.config.zoom);
-    const halfVH = this.config.viewportHeight / (2 * this.config.zoom);
-    const halfDW = this.config.deadzoneWidth / 2;
-    const halfDH = this.config.deadzoneHeight / 2;
+    // Always center on target (no deadzone)
+    this.targetX = targetWorldX - this.config.viewportWidth / (2 * this.config.zoom);
+    this.targetY = targetWorldY - this.config.viewportHeight / (2 * this.config.zoom);
 
-    if (screenTargetX < halfVW - halfDW) {
-      this.targetX = targetWorldX - halfVW + halfDW;
-    } else if (screenTargetX > halfVW + halfDW) {
-      this.targetX = targetWorldX - halfVW - halfDW;
-    }
-
-    if (screenTargetY < halfVH - halfDH) {
-      this.targetY = targetWorldY - halfVH + halfDH;
-    } else if (screenTargetY > halfVH + halfDH) {
-      this.targetY = targetWorldY - halfVH - halfDH;
-    }
 
     // Smooth lerp toward target
     const speed = 1 - Math.pow(1 - this.config.followSpeed, dt * 60);
@@ -86,6 +71,13 @@ export class Camera {
   snapTo(worldX: number, worldY: number): void {
     this.x = worldX - this.config.viewportWidth / (2 * this.config.zoom);
     this.y = worldY - this.config.viewportHeight / (2 * this.config.zoom);
+
+    // Clamp within world bounds
+    const maxX = this.config.worldWidth - this.config.viewportWidth / this.config.zoom;
+    const maxY = this.config.worldHeight - this.config.viewportHeight / this.config.zoom;
+    if (maxX < 0) { this.x = maxX / 2; } else { this.x = clamp(this.x, 0, maxX); }
+    if (maxY < 0) { this.y = maxY / 2; } else { this.y = clamp(this.y, 0, maxY); }
+
     this.targetX = this.x;
     this.targetY = this.y;
   }

@@ -642,8 +642,9 @@ export function GameScreen() {
 
         // ── CAMERA ─────────────────────────────────────────────────
         camera.follow(p.pixelX, p.pixelY, dt);
-        worldContainer.x = -camera.x;
-        worldContainer.y = -camera.y;
+        worldContainer.scale.set(camera.config.zoom);
+        worldContainer.x = -camera.x * camera.config.zoom;
+        worldContainer.y = -camera.y * camera.config.zoom;
 
         const worldMouse = camera.screenToWorld(input.getState().mouse.x, input.getState().mouse.y);
         input.setWorldMouse(worldMouse.x, worldMouse.y);

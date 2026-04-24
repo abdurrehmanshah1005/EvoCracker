@@ -315,16 +315,22 @@ export class EnemyBase {
 
   die(): void {
     this.isAlive = false;
-    this.gameSprite.setAnimation('death');
-    let t = 0;
-    const interval = setInterval(() => {
-      t += 0.033;
-      this.gameSprite.setAlpha(Math.max(0, 1 - t * 2));
-      if (t >= 0.5) {
-        clearInterval(interval);
+    // Set death animation — but guard against bad textures
+    try {
+      this.gameSprite.setAnimation('death');
+    } catch {
+      // If death anim textures are invalid, just keep current
+    }
+    this.gameSprite.setAlpha(0.5);
+    // Simple delayed hide — no setInterval to avoid crashes on destroyed containers
+    setTimeout(() => {
+      try {
+        this.gameSprite.setAlpha(0);
         this.container.visible = false;
+      } catch {
+        // Container may already be destroyed
       }
-    }, 33);
+    }, 500);
   }
 
   private updateBlackboard(playerTileX: number, playerTileY: number): void {
