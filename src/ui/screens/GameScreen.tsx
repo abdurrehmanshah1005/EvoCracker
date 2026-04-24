@@ -87,7 +87,6 @@ export function GameScreen() {
   const isPausedRef = useRef(false);
   const trapdoorDeathPendingRef = useRef(false);
   const trapdoorDeathTimerRef = useRef(0);
-  const trapdoorDeathTimerRef = useRef(0);
   const trapdoorReturnPendingRef = useRef(false);
   const trapdoorReturnTimerRef = useRef(0);
   const floorClearedRef = useRef(false);
