@@ -206,7 +206,7 @@ export function GameScreen() {
       const camera = new Camera({ 
         viewportWidth: window.innerWidth, 
         viewportHeight: window.innerHeight, 
-        zoom: 1.8,
+        zoom: 1.0,
         deadzoneWidth: 0,
         deadzoneHeight: 0
       });
