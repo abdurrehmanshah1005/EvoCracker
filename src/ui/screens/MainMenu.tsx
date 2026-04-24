@@ -8,103 +8,6 @@ import type { GameScreen } from '@store/gameStore';
  */
 export function MainMenu() {
   const setScreen = useGameStore((s) => s.setScreen);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const animFrameRef = useRef<number>(0);
-
-  // Particle system for background ambiance
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const ctx = canvas.getContext('2d')!;
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-
-    interface Particle {
-      x: number; y: number;
-      vx: number; vy: number;
-      size: number;
-      alpha: number;
-      color: string;
-      life: number;
-      maxLife: number;
-    }
-
-    const particles: Particle[] = [];
-    const colors = [
-      'rgba(200, 168, 80, ',   // Gold
-      'rgba(123, 77, 255, ',   // Purple
-      'rgba(68, 136, 255, ',   // Blue
-    ];
-
-    function spawnParticle() {
-      const color = colors[Math.floor(Math.random() * colors.length)];
-      particles.push({
-        x: Math.random() * canvas!.width,
-        y: canvas!.height + 10,
-        vx: (Math.random() - 0.5) * 0.5,
-        vy: -Math.random() * 1.5 - 0.5,
-        size: Math.random() * 3 + 1,
-        alpha: Math.random() * 0.6 + 0.2,
-        color,
-        life: 0,
-        maxLife: Math.random() * 300 + 200,
-      });
-    }
-
-    function animate() {
-      ctx.clearRect(0, 0, canvas!.width, canvas!.height);
-
-      // Spawn new particles
-      if (particles.length < 80 && Math.random() < 0.3) {
-        spawnParticle();
-      }
-
-      // Update & draw
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vx += (Math.random() - 0.5) * 0.02; // Drift
-        p.life++;
-
-        const fadeIn = Math.min(p.life / 30, 1);
-        const fadeOut = Math.max(0, 1 - (p.life - p.maxLife + 60) / 60);
-        const currentAlpha = p.alpha * fadeIn * fadeOut;
-
-        if (p.life > p.maxLife || currentAlpha <= 0) {
-          particles.splice(i, 1);
-          continue;
-        }
-
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-        ctx.fillStyle = p.color + currentAlpha + ')';
-        ctx.fill();
-
-        // Glow effect
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size * 3, 0, Math.PI * 2);
-        ctx.fillStyle = p.color + (currentAlpha * 0.15) + ')';
-        ctx.fill();
-      }
-
-      animFrameRef.current = requestAnimationFrame(animate);
-    }
-
-    animate();
-
-    const onResize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    };
-    window.addEventListener('resize', onResize);
-
-    return () => {
-      cancelAnimationFrame(animFrameRef.current);
-      window.removeEventListener('resize', onResize);
-    };
-  }, []);
 
   const handleMenuClick = useCallback((screen: GameScreen) => {
     setScreen(screen);
@@ -115,29 +18,28 @@ export function MainMenu() {
       {/* Background gradient */}
       <div className="main-menu-bg" />
 
-      {/* Animated particles */}
-      <canvas ref={canvasRef} className="main-menu-particles" />
-
       {/* Content */}
       <div className="main-menu-content">
         {/* Decorative rune */}
         <div style={{
-          fontSize: '2rem',
-          opacity: 0.5,
           animation: 'float 4s ease-in-out infinite',
-          marginBottom: '-8px',
+          marginBottom: '-20px',
         }}>
-          ⚗️
+          <img 
+            src="/assets/Fire-Skull-Files/Previews/fire-skull.gif" 
+            alt="Fire Skull" 
+            style={{ width: '120px', height: 'auto', filter: 'drop-shadow(0 0 10px rgba(255, 0, 0, 0.5))' }}
+          />
         </div>
 
         {/* Title */}
         <h1 className="main-menu-title">
-          EvoCracker
+          <span className="title-evo">Evo</span><span className="title-cracker">Cracker</span>
         </h1>
 
         {/* Subtitle */}
         <p className="main-menu-subtitle">
-          The Summoner's Trial
+          Evolve. Mutate. Crack.
         </p>
 
         {/* Divider */}

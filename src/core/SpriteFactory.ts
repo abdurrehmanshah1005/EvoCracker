@@ -21,6 +21,7 @@ export interface GameSprite {
   setAnimation: (state: AnimationState) => void;
   setFlipX: (flip: boolean) => void;
   setAlpha: (alpha: number) => void;
+  setTint: (tint: number) => void;
   destroy: () => void;
   isPlaceholder: boolean;
 }
@@ -78,6 +79,7 @@ export interface CharacterDef {
   customRegions?: CustomAnimRegions;  // optional pixel-level frame regions
   separateSheets?: SeparateSheets;    // optional separate sprite sheets per animation
   flipDefault?: boolean;  // true if sprite faces left by default (invert flip logic)
+  customScale?: number;   // optional multiplier for base scaling
 }
 
 // The sprite sheets are roughly 1024x1024 with 8 columns × 3-5 rows.
@@ -113,6 +115,7 @@ export const CHARACTER_DEFS: CharacterDef[] = [
     color: '#ff6688',
     description: 'Swift blade dancer',
     glowColor: 0xff6688,
+    customScale: 1.5,
     separateSheets: {
       idle:    { path: '/assets/characters/Bridge Heroine/Heroine base/Spritesheets/idle.png',   cols: 4, frameW: 128, frameH: 64 },
       walk:    { path: '/assets/characters/Bridge Heroine/Heroine base/Spritesheets/run.png',    cols: 7, frameW: 128, frameH: 64 },
@@ -130,6 +133,7 @@ export const CHARACTER_DEFS: CharacterDef[] = [
     color: '#88aa44',
     description: 'Hulking brute',
     glowColor: 0x88aa44,
+    flipDefault: true,
     separateSheets: {
       idle:    { path: '/assets/characters/Ogre/Spritesheets/ogre-idle.png',   cols: 4, frameW: 144, frameH: 80 },
       walk:    { path: '/assets/characters/Ogre/Spritesheets/ogre-walk.png',   cols: 6, frameW: 144, frameH: 80 },
@@ -147,6 +151,7 @@ export const CHARACTER_DEFS: CharacterDef[] = [
     color: '#dd4466',
     description: 'Fallen dark knight',
     glowColor: 0xdd4466,
+    customScale: 1.5,
     separateSheets: {
       idle:    { path: '/assets/characters/Terrible Knight/Spritesheets/player-Idle.png',         cols: 4, frameW: 128, frameH: 96 },
       walk:    { path: '/assets/characters/Terrible Knight/Spritesheets/player-Run.png',          cols: 12, frameW: 128, frameH: 96 },
@@ -217,11 +222,83 @@ export const CHARACTER_DEFS: CharacterDef[] = [
     color: '#cc4422',
     description: 'Ancient fire wyrm',
     glowColor: 0xcc4422,
+    flipDefault: true,
     separateSheets: {
       idle:    { path: '/assets/characters/Grotto-escape-2-boss-dragon/spritesheets/idle.png',   cols: 6, frameW: 144, frameH: 64 },
       walk:    { path: '/assets/characters/Grotto-escape-2-boss-dragon/spritesheets/idle.png',   cols: 6, frameW: 144, frameH: 64 }, // no walk sheet
       attack:  { path: '/assets/characters/Grotto-escape-2-boss-dragon/spritesheets/breath.png', cols: 7, frameW: 144, frameH: 64 },
       special: { path: '/assets/characters/Grotto-escape-2-boss-dragon/spritesheets/tail.png',   cols: 8, frameW: 144, frameH: 64 },
+    },
+  },
+  {
+    name: 'Lizzard',
+    key: 'lizzard',
+    sheet: '/assets/characters/Grotto-escape-2-lizzard/spritesheets/idle.png',
+    frameW: 64, frameH: 32,
+    cols: 4, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#33aa55',
+    description: 'Slithering beast',
+    glowColor: 0x33aa55,
+    separateSheets: {
+      idle:    { path: '/assets/characters/Grotto-escape-2-lizzard/spritesheets/idle.png',   cols: 4, frameW: 64, frameH: 32 },
+      walk:    { path: '/assets/characters/Grotto-escape-2-lizzard/spritesheets/walk.png',   cols: 6, frameW: 64, frameH: 32 },
+      attack:  { path: '/assets/characters/Grotto-escape-2-lizzard/spritesheets/tongue.png', cols: 5, frameW: 64, frameH: 32 },
+      death:   { path: '/assets/characters/Grotto-escape-2-lizzard/spritesheets/hurt.png',   cols: 3, frameW: 64, frameH: 32 },
+      special: { path: '/assets/characters/Grotto-escape-2-lizzard/spritesheets/jump.png',   cols: 5, frameW: 64, frameH: 32 },
+    },
+  },
+  {
+    name: 'Space Marine',
+    key: 'spacemarine',
+    sheet: '/assets/characters/space-marine-lite/spritesheets/idle.png',
+    frameW: 75, frameH: 48,
+    cols: 4, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#00ccff',
+    description: 'Future warrior',
+    glowColor: 0x00ccff,
+    separateSheets: {
+      idle:    { path: '/assets/characters/space-marine-lite/spritesheets/idle.png',   cols: 4, frameW: 75, frameH: 48 },
+      walk:    { path: '/assets/characters/space-marine-lite/spritesheets/run.png',    cols: 10, frameW: 75, frameH: 48 },
+      attack:  { path: '/assets/characters/space-marine-lite/spritesheets/shoot.png',  cols: 2, frameW: 75, frameH: 48 },
+      death:   { path: '/assets/characters/space-marine-lite/spritesheets/hurt.png',   cols: 3, frameW: 75, frameH: 48 },
+      special: { path: '/assets/characters/space-marine-lite/spritesheets/jump.png',   cols: 5, frameW: 75, frameH: 48 },
+    },
+  },
+  {
+    name: 'Sunny Froggy',
+    key: 'froggy',
+    sheet: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-taunting.png',
+    frameW: 53, frameH: 42,
+    cols: 4, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#ffff33',
+    description: 'Bouncing hopper',
+    glowColor: 0xffff33,
+    flipDefault: true,
+    separateSheets: {
+      idle:    { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-taunting.png', cols: 4, frameW: 53, frameH: 42 },
+      walk:    { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-walk.png',     cols: 10, frameW: 42, frameH: 38 },
+      attack:  { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-jump.png',     cols: 5, frameW: 42, frameH: 48 },
+      special: { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-jump.png',     cols: 5, frameW: 42, frameH: 48 },
+    },
+  },
+  {
+    name: 'Sunny Mushroom',
+    key: 'mushroom',
+    sheet: '/assets/characters/sunny-mushroom/spritesheets/sunny-mushroom-walk.png',
+    frameW: 41, frameH: 30,
+    cols: 10, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#ff9933',
+    description: 'Toxic fungus',
+    glowColor: 0xff9933,
+    separateSheets: {
+      idle:    { path: '/assets/characters/sunny-mushroom/spritesheets/sunny-mushroom-walk.png',   cols: 10, frameW: 41, frameH: 30 },
+      walk:    { path: '/assets/characters/sunny-mushroom/spritesheets/sunny-mushroom-walk.png',   cols: 10, frameW: 41, frameH: 30 },
+      attack:  { path: '/assets/characters/sunny-mushroom/spritesheets/sunny-mushroom-breath.png', cols: 10, frameW: 63, frameH: 37 },
+      special: { path: '/assets/characters/sunny-mushroom/spritesheets/gas-alone.png',             cols: 6, frameW: 63, frameH: 37 },
     },
   },
 ];
@@ -517,8 +594,8 @@ export function createPlayerSprite(characterIndex?: number): GameSprite {
     const anim = new AnimatedSprite(anims.idle);
     anim.animationSpeed = 0.1;
     anim.anchor.set(0.5);
-    // Scale sprite to roughly 2.5 tiles for visibility
-    const targetSize = TILE_SIZE * 2.5;
+    // Scale sprite to roughly 3.5 tiles for visibility
+    const targetSize = TILE_SIZE * 3.5 * (charDef.customScale || 1);
     const scale = targetSize / Math.max(charDef.frameW, charDef.frameH);
     anim.scale.set(charDef.flipDefault ? -scale : scale, scale);
     anim.play();
@@ -569,6 +646,7 @@ export function createPlayerSprite(characterIndex?: number): GameSprite {
         anim.scale.x = flipped ? -baseScale : baseScale;
       },
       setAlpha: (a) => { anim.alpha = a; glow.alpha = a * 0.3; },
+      setTint: (tint) => { anim.tint = tint; },
       destroy: () => container.destroy({ children: true }),
       isPlaceholder: false,
     };
@@ -595,6 +673,7 @@ export function createPlayerSprite(characterIndex?: number): GameSprite {
     setAnimation: () => {},
     setFlipX: (flip) => { g.scale.x = flip ? -1 : 1; },
     setAlpha: (a) => { container.alpha = a; },
+    setTint: (tint) => { g.tint = tint; },
     destroy: () => container.destroy({ children: true }),
     isPlaceholder: true,
   };
@@ -612,7 +691,7 @@ export function createCharacterEnemySprite(characterIndex: number): GameSprite {
     const anim = new AnimatedSprite(anims.idle);
     anim.animationSpeed = 0.08;
     anim.anchor.set(0.5);
-    const targetSize = TILE_SIZE * 2.5;
+    const targetSize = TILE_SIZE * 3.5 * (charDef.customScale || 1);
     const scale = targetSize / Math.max(charDef.frameW, charDef.frameH);
     anim.scale.set(charDef.flipDefault ? -scale : scale, scale);
     anim.play();
@@ -675,6 +754,7 @@ export function createCharacterEnemySprite(characterIndex: number): GameSprite {
         anim.scale.x = flipped ? -baseScale : baseScale;
       },
       setAlpha: (a) => { container.alpha = a; },
+      setTint: (tint) => { anim.tint = tint; },
       destroy: () => container.destroy({ children: true }),
       isPlaceholder: false,
     };

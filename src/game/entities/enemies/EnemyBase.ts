@@ -201,12 +201,14 @@ export class EnemyBase {
 
   /** FIXED: Proper tile-by-tile path following with time-based movement */
   private followPath(dt: number, grid: Grid): void {
+    const isAttacking = this.attackTimer > Math.max(0, this.attackCooldown - 0.4);
+
     if (this.currentPath.length === 0 || this.pathIndex >= this.currentPath.length) {
-      this.gameSprite.setAnimation('idle');
+      if (!isAttacking) this.gameSprite.setAnimation('idle');
       return;
     }
 
-    this.gameSprite.setAnimation('walk');
+    if (!isAttacking) this.gameSprite.setAnimation('walk');
 
     // Accumulate movement budget (in tiles)
     this.moveAccumulator += this.speed * dt;
@@ -301,9 +303,8 @@ export class EnemyBase {
 
   takeDamage(amount: number): void {
     this.health = Math.max(0, this.health - amount);
-    // Flash red
-    this.container.tint = 0xff4444;
-    setTimeout(() => { if (this.isAlive) this.container.tint = 0xffffff; }, 150);
+    this.gameSprite.setTint?.(0xff4444);
+    setTimeout(() => { if (this.isAlive) this.gameSprite.setTint?.(0xffffff); }, 150);
     if (this.health <= 0) this.die();
   }
 

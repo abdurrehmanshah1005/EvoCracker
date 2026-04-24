@@ -164,6 +164,8 @@ export async function generateDungeon(
     }
   }
 
+  shuffle(enemySpawnPoints);
+
   return {
     width,
     height,
@@ -341,6 +343,7 @@ async function generateFloorFromTiledJson(
 
     console.info(`[DungeonGenerator] Tiled JSON map loaded: ${mapW}x${mapH}, spawn=(${finalSpawn.x},${finalSpawn.y}), exit=(${finalExit.x},${finalExit.y}), enemies=${enemySpawnPoints.length}`);
 
+    shuffle(enemySpawnPoints);
     return {
       width: mapW,
       height: mapH,
@@ -734,6 +737,8 @@ export function generateDungeonFromPngPixels(
 
   const finalSpawn = spawnPoint ?? { x: 1, y: 1 };
   const finalExit = exitPoint ?? { x: Math.max(1, width - 2), y: Math.max(1, height - 2) };
+
+  shuffle(enemySpawnPoints);
 
   return {
     width,

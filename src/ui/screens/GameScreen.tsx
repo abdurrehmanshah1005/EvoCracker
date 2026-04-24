@@ -100,7 +100,7 @@ export function GameScreen() {
     tileX: 0, tileY: 0,
     pixelX: 0, pixelY: 0,
     sprite: null as ReturnType<typeof createPlayerSprite> | null,
-    health: 100, maxHealth: 100,
+    health: 500, maxHealth: 500,
     attackCooldown: 0,
     attackDamage: 20,
     attackRange: 2,
@@ -201,7 +201,7 @@ export function GameScreen() {
       canvasRef.current.style.outline = 'none';
       canvasRef.current.focus();
 
-      const camera = new Camera({ viewportWidth: window.innerWidth, viewportHeight: window.innerHeight });
+      const camera = new Camera({ viewportWidth: window.innerWidth, viewportHeight: window.innerHeight, zoom: 3.0 });
       cameraRef.current = camera;
 
       const input = InputManager.getInstance();
@@ -303,9 +303,10 @@ export function GameScreen() {
         // Replace the enemy's sprite with a character sprite
         enemy.container.removeChildren();
         const charSprite = createCharacterEnemySprite(charIndex);
-        for (const child of charSprite.container.children) {
+        for (const child of [...charSprite.container.children]) {
           enemy.container.addChild(child);
         }
+        enemy.gameSprite = charSprite;
         enemy.container.zIndex = 10;
         worldContainer.addChild(enemy.container);
         enemiesRef.current.push(enemy);
@@ -342,6 +343,7 @@ export function GameScreen() {
       let fpsTimer = 0;
       let analyticsTimer = 0;
       let attackVisualTimer = 0;
+      let playerAttackAnimTimer = 0;
 
       // ══════════════════════════════════════════════════════════════
       // GAME LOOP
@@ -428,12 +430,14 @@ export function GameScreen() {
           p.state.tileX = p.tileX;
           p.state.tileY = p.tileY;
 
-          p.sprite?.setAnimation('walk');
+          if (playerAttackAnimTimer <= 0) p.sprite?.setAnimation('walk');
           if (moveX < 0) p.sprite?.setFlipX(true);
           if (moveX > 0) p.sprite?.setFlipX(false);
         } else {
-          p.sprite?.setAnimation('idle');
+          if (playerAttackAnimTimer <= 0) p.sprite?.setAnimation('idle');
         }
+
+        if (playerAttackAnimTimer > 0) playerAttackAnimTimer -= dtSeconds;
 
         p.sprite!.container.x = p.pixelX;
         p.sprite!.container.y = p.pixelY;
@@ -461,6 +465,7 @@ export function GameScreen() {
           }
 
           p.attackCooldown = 0.4;
+          playerAttackAnimTimer = 0.4;
           p.sprite?.setAnimation('attack');
 
           let hitCount = 0;
@@ -562,13 +567,15 @@ export function GameScreen() {
             const edist = Math.sqrt(edx * edx + edy * edy);
             if (edist <= 1.5) {
               enemy.attackTimer = enemy.attackCooldown;
+              enemy.gameSprite.setAnimation('attack');
+              
               const dmg = enemy.attackDamage;
               enemy.performance.damageDealt += dmg;
               p.health = Math.max(0, p.health - dmg);
               storeActionsRef.current.setPlayerHealth(p.health);
 
-              p.sprite!.container.tint = 0xff4444;
-              setTimeout(() => { p.sprite!.container.tint = 0xffffff; }, 200);
+              p.sprite!.setTint?.(0xff4444);
+              setTimeout(() => { p.sprite!.setTint?.(0xffffff); }, 200);
 
               if (p.health <= 0) {
                 playerDeadRef.current = true;
