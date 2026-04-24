@@ -145,9 +145,15 @@ export async function generateDungeon(
   }
 
   // Enemy spawn points: 1-3 per non-special room, scaling with floor
+  // Only spawn in rooms far enough from the player's starting position
   const enemySpawnPoints: DungeonData['enemySpawnPoints'] = [];
   const enemyRooms = rooms.filter((r) => r.type === 'normal');
+  const spawnCX = startRoom.centerX;
+  const spawnCY = startRoom.centerY;
   for (const room of enemyRooms) {
+    // Skip rooms whose center is too close to the start room (Manhattan dist < 8)
+    const roomDist = Math.abs(room.centerX - spawnCX) + Math.abs(room.centerY - spawnCY);
+    if (roomDist < 8) continue;
     const count = Math.min(1 + Math.floor(floor / 3), 4);
     for (let i = 0; i < count; i++) {
       const ex = randomInt(room.x + 1, room.x + room.width - 2);
@@ -297,7 +303,7 @@ async function generateFloorFromTiledJson(
         const t = tiles[y][x];
         const walkable = t !== TileType.WALL && t !== TileType.STAIRS_UP && t !== TileType.STAIRS_DOWN;
         if (!walkable) continue;
-        if (spawnPoint && Math.abs(x - spawnPoint.x) + Math.abs(y - spawnPoint.y) < 5) continue;
+        if (spawnPoint && Math.abs(x - spawnPoint.x) + Math.abs(y - spawnPoint.y) < 8) continue;
         if (exitPoint && Math.abs(x - exitPoint.x) + Math.abs(y - exitPoint.y) < 4) continue;
         enemySpawnPoints.push({ x, y });
       }

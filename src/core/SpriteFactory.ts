@@ -27,10 +27,44 @@ export interface GameSprite {
 
 // ── Character definitions ─────────────────────────────────────────────
 
+/**
+ * Defines a rectangular pixel region within a sprite sheet
+ * for extracting animation frames.
+ */
+export interface AnimRegion {
+  y: number;       // top Y coordinate of the frame row
+  h: number;       // height of each frame in this row
+  cols: number;    // number of frames (columns) in this row
+  frameW: number;  // width of each frame
+}
+
+/**
+ * Optional per-animation custom pixel regions.
+ * Used for sprite sheets that have non-uniform row heights
+ * (e.g. text labels between rows, multi-row attacks).
+ */
+export interface CustomAnimRegions {
+  idle: AnimRegion | AnimRegion[];    // single row or multiple rows
+  walk: AnimRegion | AnimRegion[];    // single row or multiple rows
+  attack: AnimRegion | AnimRegion[];  // single row or multiple rows (e.g. 16-frame attack across 2 rows)
+}
+
+/**
+ * Defines separate sprite sheets for each animation state.
+ * Used for characters whose assets come as individual strip images per animation.
+ */
+export interface SeparateSheets {
+  idle: { path: string; cols: number; frameW: number; frameH: number };
+  walk: { path: string; cols: number; frameW: number; frameH: number };
+  attack: { path: string; cols: number; frameW: number; frameH: number };
+  death?: { path: string; cols: number; frameW: number; frameH: number };
+  special?: { path: string; cols: number; frameW: number; frameH: number };
+}
+
 export interface CharacterDef {
   name: string;
   key: string;        // asset key for loading
-  sheet: string;      // path to sprite sheet PNG
+  sheet: string;      // path to sprite sheet PNG (main/preview sheet)
   frameW: number;     // pixel width of each frame
   frameH: number;     // pixel height of each frame
   cols: number;       // number of columns in the sheet
@@ -41,6 +75,9 @@ export interface CharacterDef {
   color: string;      // accent color for UI
   description: string;
   glowColor: number;  // hex glow color for in-game visibility
+  customRegions?: CustomAnimRegions;  // optional pixel-level frame regions
+  separateSheets?: SeparateSheets;    // optional separate sprite sheets per animation
+  flipDefault?: boolean;  // true if sprite faces left by default (invert flip logic)
 }
 
 // The sprite sheets are roughly 1024x1024 with 8 columns × 3-5 rows.
@@ -48,59 +85,144 @@ export interface CharacterDef {
 // We use a fixed frame count per animation: 8 frames across each row.
 export const CHARACTER_DEFS: CharacterDef[] = [
   {
-    name: 'Mega Knight',
-    key: 'mega_knight',
-    sheet: '/assets/characters/mega_knight.png',
-    frameW: 0, frameH: 0, // computed at load time
-    cols: 8, rows: 5,
-    idleRow: 0, walkRow: 1, attackRow: 2,
-    color: '#4488ff',
-    description: 'Heavy armored warrior',
-    glowColor: 0x4488ff,
+    name: 'Ghost',
+    key: 'ghost',
+    sheet: '/assets/characters/Ghost-Files/Spritesheets/ghost-Idle.png', // preview sheet
+    frameW: 64, frameH: 80,
+    cols: 7, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#44ddee',
+    description: 'Spectral haunter',
+    glowColor: 0x44ddee,
+    flipDefault: true,  // ghost sprites face left by default
+    separateSheets: {
+      idle:    { path: '/assets/characters/Ghost-Files/Spritesheets/ghost-Idle.png',    cols: 7, frameW: 64, frameH: 80 },
+      walk:    { path: '/assets/characters/Ghost-Files/Spritesheets/ghost-Chase.png',   cols: 4, frameW: 64, frameH: 80 },
+      attack:  { path: '/assets/characters/Ghost-Files/Spritesheets/ghost-Shriek.png',  cols: 4, frameW: 64, frameH: 80 },
+      death:   { path: '/assets/characters/Ghost-Files/Spritesheets/ghost-Vanish.png',  cols: 7, frameW: 64, frameH: 80 },
+      special: { path: '/assets/characters/Ghost-Files/Spritesheets/ghost-Appear.png',  cols: 6, frameW: 64, frameH: 80 },
+    },
   },
   {
-    name: 'Akutagawa',
-    key: 'akutagawa',
-    sheet: '/assets/characters/akutagawa.png',
-    frameW: 0, frameH: 0,
-    cols: 8, rows: 3,
-    idleRow: 0, walkRow: 1, attackRow: 2,
-    color: '#aa44ff',
-    description: 'Dark shadow master',
-    glowColor: 0xaa44ff,
+    name: 'Bridge Heroine',
+    key: 'heroine',
+    sheet: '/assets/characters/Bridge Heroine/Heroine base/Spritesheets/idle.png',
+    frameW: 128, frameH: 64,
+    cols: 4, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#ff6688',
+    description: 'Swift blade dancer',
+    glowColor: 0xff6688,
+    separateSheets: {
+      idle:    { path: '/assets/characters/Bridge Heroine/Heroine base/Spritesheets/idle.png',   cols: 4, frameW: 128, frameH: 64 },
+      walk:    { path: '/assets/characters/Bridge Heroine/Heroine base/Spritesheets/run.png',    cols: 7, frameW: 128, frameH: 64 },
+      attack:  { path: '/assets/characters/Bridge Heroine/Heroine base/Spritesheets/attack.png', cols: 5, frameW: 128, frameH: 64 },
+      special: { path: '/assets/characters/Bridge Heroine/Heroine base/Spritesheets/jump.png',   cols: 4, frameW: 128, frameH: 64 },
+    },
   },
   {
-    name: 'Homelander',
-    key: 'homelander',
-    sheet: '/assets/characters/homelander.png',
-    frameW: 0, frameH: 0,
-    cols: 8, rows: 3,
-    idleRow: 0, walkRow: 1, attackRow: 2,
-    color: '#ff4444',
-    description: 'Laser-eyed superman',
-    glowColor: 0xff4444,
+    name: 'Ogre',
+    key: 'ogre',
+    sheet: '/assets/characters/Ogre/Spritesheets/ogre-idle.png',
+    frameW: 144, frameH: 80,
+    cols: 4, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#88aa44',
+    description: 'Hulking brute',
+    glowColor: 0x88aa44,
+    separateSheets: {
+      idle:    { path: '/assets/characters/Ogre/Spritesheets/ogre-idle.png',   cols: 4, frameW: 144, frameH: 80 },
+      walk:    { path: '/assets/characters/Ogre/Spritesheets/ogre-walk.png',   cols: 6, frameW: 144, frameH: 80 },
+      attack:  { path: '/assets/characters/Ogre/Spritesheets/ogre-attack.png', cols: 7, frameW: 144, frameH: 80 },
+      special: { path: '/assets/characters/Ogre/Spritesheets/ogre-idle-unarmed.png', cols: 4, frameW: 144, frameH: 80 },
+    },
   },
   {
-    name: 'Tung Tung Sahur',
-    key: 'tungtung',
-    sheet: '/assets/characters/tungtung.png',
-    frameW: 0, frameH: 0,
-    cols: 8, rows: 5,
-    idleRow: 0, walkRow: 2, attackRow: 3,
-    color: '#dd8844',
-    description: 'Rhythmic stick fighter',
-    glowColor: 0xdd8844,
+    name: 'Terrible Knight',
+    key: 'knight',
+    sheet: '/assets/characters/Terrible Knight/Spritesheets/player-Idle.png',
+    frameW: 128, frameH: 96,
+    cols: 4, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#dd4466',
+    description: 'Fallen dark knight',
+    glowColor: 0xdd4466,
+    separateSheets: {
+      idle:    { path: '/assets/characters/Terrible Knight/Spritesheets/player-Idle.png',         cols: 4, frameW: 128, frameH: 96 },
+      walk:    { path: '/assets/characters/Terrible Knight/Spritesheets/player-Run.png',          cols: 12, frameW: 128, frameH: 96 },
+      attack:  { path: '/assets/characters/Terrible Knight/Spritesheets/player-Sword Slash.png',  cols: 6, frameW: 128, frameH: 96 },
+      death:   { path: '/assets/characters/Terrible Knight/Spritesheets/player-Hurt.png',         cols: 3, frameW: 128, frameH: 96 },
+      special: { path: '/assets/characters/Terrible Knight/Spritesheets/player-AirSwordSlash.png', cols: 6, frameW: 128, frameH: 96 },
+    },
   },
   {
-    name: 'Kenpachi',
-    key: 'kenpachi',
-    sheet: '/assets/characters/kenpachi.png',
-    frameW: 0, frameH: 0,
-    cols: 6, rows: 3,
-    idleRow: 0, walkRow: 1, attackRow: 2,
-    color: '#44dd88',
-    description: 'Wild sword demon',
-    glowColor: 0x44dd88,
+    name: 'WereWolf',
+    key: 'werewolf',
+    sheet: '/assets/characters/WereWolf/Spritesheets/werewolf-idle.png',
+    frameW: 96, frameH: 76,
+    cols: 5, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#8866aa',
+    description: 'Savage beast',
+    glowColor: 0x8866aa,
+    separateSheets: {
+      idle:    { path: '/assets/characters/WereWolf/Spritesheets/werewolf-idle.png', cols: 5, frameW: 96, frameH: 76 },
+      walk:    { path: '/assets/characters/WereWolf/Spritesheets/werewolf-run.png',  cols: 6, frameW: 96, frameH: 76 },
+      attack:  { path: '/assets/characters/WereWolf/Spritesheets/werewolf-run.png',  cols: 6, frameW: 96, frameH: 76 }, // no attack sheet, reuse run
+      special: { path: '/assets/characters/WereWolf/Spritesheets/werewolf-jump.png', cols: 2, frameW: 96, frameH: 76 },
+    },
+  },
+  {
+    name: 'Demon',
+    key: 'demon',
+    sheet: '/assets/characters/demon-Files/Spritesheets/demon-idle.png',
+    frameW: 160, frameH: 144,
+    cols: 6, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#cc3366',
+    description: 'Winged infernal lord',
+    glowColor: 0xcc3366,
+    flipDefault: true,  // demon sprites face left by default
+    separateSheets: {
+      idle:    { path: '/assets/characters/demon-Files/Spritesheets/demon-idle.png',             cols: 6, frameW: 160, frameH: 144 },
+      walk:    { path: '/assets/characters/demon-Files/Spritesheets/demon-idle.png',             cols: 6, frameW: 160, frameH: 144 }, // no walk sheet, reuse idle
+      attack:  { path: '/assets/characters/demon-Files/Spritesheets/demon-attack-no-breath.png', cols: 8, frameW: 192, frameH: 176 },
+      special: { path: '/assets/characters/demon-Files/Spritesheets/breath-fire.png',            cols: 5, frameW: 160, frameH: 96 },
+    },
+  },
+  {
+    name: 'Mutant Toad',
+    key: 'toad',
+    sheet: '/assets/characters/mutant-toad/Spritesheets/mutant-toad-idle.png',
+    frameW: 80, frameH: 64,
+    cols: 4, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#44cc88',
+    description: 'Toxic leaping beast',
+    glowColor: 0x44cc88,
+    separateSheets: {
+      idle:    { path: '/assets/characters/mutant-toad/Spritesheets/mutant-toad-idle.png',   cols: 4, frameW: 80, frameH: 64 },
+      walk:    { path: '/assets/characters/mutant-toad/Spritesheets/mutant-toad-jump.png',   cols: 4, frameW: 80, frameH: 64 }, // toad hops to move
+      attack:  { path: '/assets/characters/mutant-toad/Spritesheets/mutant-toad-attack.png', cols: 3, frameW: 80, frameH: 64 },
+      special: { path: '/assets/characters/mutant-toad/Spritesheets/mutant-toad-jump.png',   cols: 4, frameW: 80, frameH: 64 },
+    },
+  },
+  {
+    name: 'Dragon',
+    key: 'dragon',
+    sheet: '/assets/characters/Grotto-escape-2-boss-dragon/spritesheets/idle.png',
+    frameW: 144, frameH: 64,
+    cols: 6, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#cc4422',
+    description: 'Ancient fire wyrm',
+    glowColor: 0xcc4422,
+    separateSheets: {
+      idle:    { path: '/assets/characters/Grotto-escape-2-boss-dragon/spritesheets/idle.png',   cols: 6, frameW: 144, frameH: 64 },
+      walk:    { path: '/assets/characters/Grotto-escape-2-boss-dragon/spritesheets/idle.png',   cols: 6, frameW: 144, frameH: 64 }, // no walk sheet
+      attack:  { path: '/assets/characters/Grotto-escape-2-boss-dragon/spritesheets/breath.png', cols: 7, frameW: 144, frameH: 64 },
+      special: { path: '/assets/characters/Grotto-escape-2-boss-dragon/spritesheets/tail.png',   cols: 8, frameW: 144, frameH: 64 },
+    },
   },
 ];
 
@@ -110,6 +232,8 @@ interface CharAnimFrames {
   idle: Texture[];
   walk: Texture[];
   attack: Texture[];
+  death?: Texture[];
+  special?: Texture[];
 }
 
 const characterAnimCache = new Map<string, CharAnimFrames>();
@@ -145,6 +269,14 @@ function removeBackground(img: HTMLImageElement, tolerance = 50): HTMLCanvasElem
 
   const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const pixels = data.data;
+
+  // If the top-left corner pixel is already transparent, the image has proper alpha.
+  // Skip bg removal to avoid stripping dark-colored sprites.
+  const topLeftAlpha = pixels[3];
+  if (topLeftAlpha < 10) {
+    console.log('[removeBackground] Sheet already has alpha transparency, skipping bg removal');
+    return canvas;
+  }
 
   // Sample background color from top-left corner pixel
   const bgR = pixels[0];
@@ -197,6 +329,54 @@ export async function initSpriteAssets(): Promise<void> {
   // Load each character sprite sheet with background removal
   for (const charDef of CHARACTER_DEFS) {
     try {
+      // ── Separate sheets loading (one spritesheet per animation) ──
+      if (charDef.separateSheets) {
+        const sheets = charDef.separateSheets;
+
+        /**
+         * Load a single horizontal strip spritesheet and extract frames.
+         * Each strip has `cols` frames of `frameW x frameH` side by side.
+         */
+        const loadStrip = async (info: { path: string; cols: number; frameW: number; frameH: number }): Promise<Texture[]> => {
+          const result = await loadSpriteSheetWithBgRemoval(info.path);
+          if (!result) return [];
+          const { texture: stripTex } = result;
+          const frames: Texture[] = [];
+          for (let col = 0; col < info.cols; col++) {
+            frames.push(new Texture({
+              source: stripTex.source,
+              frame: new Rectangle(col * info.frameW, 0, info.frameW, info.frameH),
+            }));
+          }
+          return frames;
+        };
+
+        const idleFrames = await loadStrip(sheets.idle);
+        const walkFrames = await loadStrip(sheets.walk);
+        const attackFrames = await loadStrip(sheets.attack);
+        const deathFrames = sheets.death ? await loadStrip(sheets.death) : undefined;
+        const specialFrames = sheets.special ? await loadStrip(sheets.special) : undefined;
+
+        charDef.frameW = sheets.idle.frameW;
+        charDef.frameH = sheets.idle.frameH;
+
+        characterAnimCache.set(charDef.key, {
+          idle: idleFrames,
+          walk: walkFrames,
+          attack: attackFrames,
+          death: deathFrames,
+          special: specialFrames,
+        });
+
+        console.log(
+          `[SpriteFactory] Loaded ${charDef.name} (separate sheets): ` +
+          `idle=${idleFrames.length}f, walk=${walkFrames.length}f, attack=${attackFrames.length}f` +
+          (deathFrames ? `, death=${deathFrames.length}f` : '') +
+          (specialFrames ? `, special=${specialFrames.length}f` : '')
+        );
+        continue;
+      }
+
       const result = await loadSpriteSheetWithBgRemoval(charDef.sheet);
       if (!result) {
         console.warn(`[SpriteFactory] Failed to load ${charDef.name} (${charDef.sheet})`);
@@ -204,9 +384,55 @@ export async function initSpriteAssets(): Promise<void> {
       }
 
       const { texture: sheet } = result;
-
       const imgW = sheet.width;
       const imgH = sheet.height;
+
+      // ── Custom region extraction (non-uniform sprite sheets) ──
+      if (charDef.customRegions) {
+        const regions = charDef.customRegions;
+
+        /**
+         * Extract frames from one or more AnimRegion definitions.
+         * Each region defines a horizontal strip of frames at a specific Y offset.
+         * Multiple regions are concatenated (e.g. a 16-frame attack across 2 rows).
+         */
+        const extractFromRegions = (regionDef: AnimRegion | AnimRegion[]): Texture[] => {
+          const regionArray = Array.isArray(regionDef) ? regionDef : [regionDef];
+          const frames: Texture[] = [];
+          for (const region of regionArray) {
+            for (let col = 0; col < region.cols; col++) {
+              frames.push(new Texture({
+                source: sheet.source,
+                frame: new Rectangle(col * region.frameW, region.y, region.frameW, region.h),
+              }));
+            }
+          }
+          return frames;
+        };
+
+        const idleFrames = extractFromRegions(regions.idle);
+        const walkFrames = extractFromRegions(regions.walk);
+        const attackFrames = extractFromRegions(regions.attack);
+
+        // Set frameW/frameH from the idle row for scaling purposes
+        const firstRegion = Array.isArray(regions.idle) ? regions.idle[0] : regions.idle;
+        charDef.frameW = firstRegion.frameW;
+        charDef.frameH = firstRegion.h;
+
+        characterAnimCache.set(charDef.key, {
+          idle: idleFrames,
+          walk: walkFrames,
+          attack: attackFrames,
+        });
+
+        console.log(
+          `[SpriteFactory] Loaded ${charDef.name} (custom regions): ${imgW}x${imgH}, ` +
+          `idle=${idleFrames.length}f, walk=${walkFrames.length}f, attack=${attackFrames.length}f`
+        );
+        continue;
+      }
+
+      // ── Standard uniform grid extraction ──
       const fW = Math.floor(imgW / charDef.cols);
       const fH = Math.floor(imgH / charDef.rows);
       charDef.frameW = fW;
@@ -291,10 +517,10 @@ export function createPlayerSprite(characterIndex?: number): GameSprite {
     const anim = new AnimatedSprite(anims.idle);
     anim.animationSpeed = 0.1;
     anim.anchor.set(0.5);
-    // Scale sprite to roughly 1.5 tiles for visibility
-    const targetSize = TILE_SIZE * 1.5;
+    // Scale sprite to roughly 2.5 tiles for visibility
+    const targetSize = TILE_SIZE * 2.5;
     const scale = targetSize / Math.max(charDef.frameW, charDef.frameH);
-    anim.scale.set(scale);
+    anim.scale.set(charDef.flipDefault ? -scale : scale, scale);
     anim.play();
     container.addChild(anim);
 
@@ -309,6 +535,8 @@ export function createPlayerSprite(characterIndex?: number): GameSprite {
         const targetFrames =
           state === 'walk' ? anims.walk :
           state === 'attack' ? anims.attack :
+          state === 'death' ? (anims.death ?? anims.idle) :
+          state === 'special' ? (anims.special ?? anims.idle) :
           anims.idle;
 
         if (targetFrames && targetFrames.length > 0) {
@@ -321,12 +549,25 @@ export function createPlayerSprite(characterIndex?: number): GameSprite {
         } else if (state === 'attack') {
           anim.animationSpeed = 0.25;
           anim.play();
+        } else if (state === 'death') {
+          anim.animationSpeed = 0.12;
+          anim.loop = false;
+          anim.play();
+        } else if (state === 'special') {
+          anim.animationSpeed = 0.15;
+          anim.loop = false;
+          anim.play();
         } else {
           anim.animationSpeed = 0.06;
+          anim.loop = true;
           anim.play();
         }
       },
-      setFlipX: (flip) => { anim.scale.x = flip ? -baseScale : baseScale; },
+      setFlipX: (flip) => {
+        // If flipDefault, invert the logic (sprite faces left by default)
+        const flipped = charDef.flipDefault ? !flip : flip;
+        anim.scale.x = flipped ? -baseScale : baseScale;
+      },
       setAlpha: (a) => { anim.alpha = a; glow.alpha = a * 0.3; },
       destroy: () => container.destroy({ children: true }),
       isPlaceholder: false,
@@ -371,20 +612,20 @@ export function createCharacterEnemySprite(characterIndex: number): GameSprite {
     const anim = new AnimatedSprite(anims.idle);
     anim.animationSpeed = 0.08;
     anim.anchor.set(0.5);
-    const targetSize = TILE_SIZE * 1.3;
+    const targetSize = TILE_SIZE * 2.5;
     const scale = targetSize / Math.max(charDef.frameW, charDef.frameH);
-    anim.scale.set(scale);
+    anim.scale.set(charDef.flipDefault ? -scale : scale, scale);
     anim.play();
     // Slight red tint to distinguish enemies
     anim.tint = 0xff8888;
     container.addChild(anim);
 
-    // Health bar
+    // Health bar — positioned above the larger sprite
     const hpBg = new Graphics();
-    hpBg.rect(-14, -TILE_SIZE * 0.8, 28, 5);
+    hpBg.rect(-16, -TILE_SIZE * 1.2, 32, 5);
     hpBg.fill({ color: 0x111111 });
     const hpFill = new Graphics();
-    hpFill.rect(-14, -TILE_SIZE * 0.8, 28, 5);
+    hpFill.rect(-16, -TILE_SIZE * 1.2, 32, 5);
     hpFill.fill({ color: 0xff4444 });
     hpFill.label = 'hpFill';
     container.addChild(hpBg);
@@ -401,6 +642,8 @@ export function createCharacterEnemySprite(characterIndex: number): GameSprite {
         const targetFrames =
           state === 'walk' ? anims.walk :
           state === 'attack' ? anims.attack :
+          state === 'death' ? (anims.death ?? anims.idle) :
+          state === 'special' ? (anims.special ?? anims.idle) :
           anims.idle;
         if (targetFrames && targetFrames.length > 0) {
           anim.textures = targetFrames;
@@ -412,14 +655,25 @@ export function createCharacterEnemySprite(characterIndex: number): GameSprite {
           anim.animationSpeed = 0.2;
           anim.play();
         } else if (state === 'death') {
-          anim.stop();
-          container.alpha = 0.5;
+          anim.animationSpeed = 0.12;
+          anim.loop = false;
+          anim.play();
+          // Fade out when death animation completes
+          anim.onComplete = () => { container.alpha = 0.3; };
+        } else if (state === 'special') {
+          anim.animationSpeed = 0.15;
+          anim.loop = false;
+          anim.play();
         } else {
           anim.animationSpeed = 0.08;
+          anim.loop = true;
           anim.play();
         }
       },
-      setFlipX: (flip) => { anim.scale.x = flip ? -baseScale : baseScale; },
+      setFlipX: (flip) => {
+        const flipped = charDef.flipDefault ? !flip : flip;
+        anim.scale.x = flipped ? -baseScale : baseScale;
+      },
       setAlpha: (a) => { container.alpha = a; },
       destroy: () => container.destroy({ children: true }),
       isPlaceholder: false,
@@ -620,6 +874,6 @@ export function updateHealthBar(container: Container, percent: number): void {
   if (!hpFill) return;
   hpFill.clear();
   const color = percent > 0.6 ? 0x44dd44 : percent > 0.3 ? 0xffaa00 : 0xff2222;
-  hpFill.rect(-14, -TILE_SIZE * 0.8, 28 * Math.max(0, percent), 5);
+  hpFill.rect(-16, -TILE_SIZE * 1.2, 32 * Math.max(0, percent), 5);
   hpFill.fill({ color });
 }

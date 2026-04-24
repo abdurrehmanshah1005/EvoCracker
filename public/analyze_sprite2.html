@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head><title>Sprite Analyzer 2</title></head>
+<body>
+<pre id="output">Loading...</pre>
+<script>
+const img = new Image();
+img.onload = () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  
+  const data = ctx.getImageData(0, 0, img.width, img.height);
+  const pixels = data.data;
+  const W = img.width;
+  const H = img.height;
+  
+  // The checkerboard pattern alternates every pixel with two colors.
+  // Real content will have lots of unique colors beyond the checkerboard.
+  // For each row, count pixels that are NOT part of the checkerboard pattern.
+  // Checkerboard colors are typically light gray (~192,192,192) and white (~255,255,255)
+  
+  function isCheckerboard(r, g, b, a) {
+    // Common checkerboard colors: (204,204,204) and (255,255,255) or similar
+    if (a < 128) return true; // transparent
+    const isLight = (r > 180 && g > 180 && b > 180);
+    const isWhite = (r > 240 && g > 240 && b > 240);
+    const isGray = (r > 180 && r < 220 && g > 180 && g < 220 && b > 180 && b < 220);
+    return isWhite || isGray;
+  }
+  
+  // Scan each row
+  const rowNonCheckerboard = [];
+  for (let y = 0; y < H; y++) {
+    let nonCB = 0;
+    for (let x = 0; x < W; x++) {
+      const idx = (y * W + x) * 4;
+      const r = pixels[idx], g = pixels[idx+1], b = pixels[idx+2], a = pixels[idx+3];
+      if (!isCheckerboard(r, g, b, a)) {
+        nonCB++;
+      }
+    }
+    rowNonCheckerboard.push(nonCB);
+  }
+  
+  // Find row groups - rows with significant non-checkerboard content
+  // Label text is small, sprite content is large
+  // Print every 10th row for overview
+  let output = 'Image: ' + W + ' x ' + H + '\n\n';
+  output += 'Non-checkerboard pixel count by row (sampled every 5 rows):\n';
+  for (let y = 0; y < H; y += 5) {
+    const bar = '#'.repeat(Math.min(80, Math.floor(rowNonCheckerboard[y] / 20)));
+    output += 'y=' + String(y).padStart(4) + ': ' + String(rowNonCheckerboard[y]).padStart(5) + ' ' + bar + '\n';
+  }
+  
+  // Find boundaries: look for transitions between low and high content
+  const threshold = 100; // minimum non-CB pixels to be "content"
+  const textThreshold = 500; // below this is text, above is sprite content
+  
+  let prevIsContent = false;
+  let blockStart = 0;
+  const blocks = [];
+  for (let y = 0; y < H; y++) {
+    const isContent = rowNonCheckerboard[y] > threshold;
+    if (isContent && !prevIsContent) {
+      blockStart = y;
+    } else if (!isContent && prevIsContent) {
+      // Find max content in this block to classify
+      let maxContent = 0;
+      for (let yy = blockStart; yy < y; yy++) {
+        maxContent = Math.max(maxContent, rowNonCheckerboard[yy]);
+      }
+      blocks.push({ start: blockStart, end: y - 1, height: y - blockStart, maxContent, type: maxContent > textThreshold ? 'SPRITES' : 'TEXT' });
+    }
+    prevIsContent = isContent;
+  }
+  if (prevIsContent) {
+    let maxContent = 0;
+    for (let yy = blockStart; yy < H; yy++) {
+      maxContent = Math.max(maxContent, rowNonCheckerboard[yy]);
+    }
+    blocks.push({ start: blockStart, end: H - 1, height: H - blockStart, maxContent, type: maxContent > textThreshold ? 'SPRITES' : 'TEXT' });
+  }
+  
+  output += '\nDetected blocks:\n';
+  blocks.forEach((b, i) => {
+    output += '  Block ' + i + ' [' + b.type + ']: y=' + b.start + '-' + b.end + ' (height=' + b.height + ', maxContent=' + b.maxContent + ')\n';
+  });
+  
+  document.getElementById('output').textContent = output;
+};
+img.src = '/assets/characters/akutagawa new.png';
+</script>
+</body>
+</html>

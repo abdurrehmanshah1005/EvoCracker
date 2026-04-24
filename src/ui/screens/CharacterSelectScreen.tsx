@@ -51,18 +51,26 @@ export function CharacterSelectScreen() {
             >
               {/* Preview using the character sprite sheet */}
               <div className="character-preview">
-                <div
-                  className="character-sprite"
-                  style={{
-                    width: 64,
-                    height: 64,
-                    backgroundImage: `url(${charDef.sheet})`,
-                    backgroundPosition: '0px 0px',
-                    backgroundSize: `${charDef.cols * 64}px auto`,
-                    backgroundRepeat: 'no-repeat',
-                    imageRendering: 'pixelated',
-                  }}
-                />
+                {(() => {
+                  const fW = charDef.frameW || 64;
+                  const fH = charDef.frameH || 64;
+                  const displaySize = 64;
+                  const scale = displaySize / Math.max(fW, fH);
+                  return (
+                    <div
+                      className="character-sprite"
+                      style={{
+                        width: displaySize,
+                        height: displaySize,
+                        backgroundImage: `url(${charDef.sheet})`,
+                        backgroundPosition: '0px 0px',
+                        backgroundSize: `${charDef.cols * fW * scale}px ${fH * scale}px`,
+                        backgroundRepeat: 'no-repeat',
+                        imageRendering: 'pixelated',
+                      }}
+                    />
+                  );
+                })()}
               </div>
 
               {/* Info */}
