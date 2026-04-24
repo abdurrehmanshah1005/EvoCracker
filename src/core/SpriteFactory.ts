@@ -625,15 +625,15 @@ export function createPlayerSprite(characterIndex?: number): GameSprite {
           anim.play();
         } else if (state === 'attack') {
           anim.animationSpeed = 0.25;
-          anim.play();
+          anim.gotoAndPlay(0);
         } else if (state === 'death') {
           anim.animationSpeed = 0.12;
           anim.loop = false;
-          anim.play();
+          anim.gotoAndPlay(0);
         } else if (state === 'special') {
           anim.animationSpeed = 0.15;
           anim.loop = false;
-          anim.play();
+          anim.gotoAndPlay(0);
         } else {
           anim.animationSpeed = 0.06;
           anim.loop = true;
@@ -732,17 +732,17 @@ export function createCharacterEnemySprite(characterIndex: number): GameSprite {
           anim.play();
         } else if (state === 'attack') {
           anim.animationSpeed = 0.2;
-          anim.play();
+          anim.gotoAndPlay(0);
         } else if (state === 'death') {
           anim.animationSpeed = 0.12;
           anim.loop = false;
-          anim.play();
+          anim.gotoAndPlay(0);
           // Fade out when death animation completes
           anim.onComplete = () => { container.alpha = 0.3; };
         } else if (state === 'special') {
           anim.animationSpeed = 0.15;
           anim.loop = false;
-          anim.play();
+          anim.gotoAndPlay(0);
         } else {
           anim.animationSpeed = 0.08;
           anim.loop = true;
@@ -892,6 +892,7 @@ export function createEnemySprite(
       },
       setFlipX: (flip) => { anim.scale.x = flip ? -2 : 2; },
       setAlpha: (a) => { container.alpha = a; },
+      setTint: (tint) => { anim.tint = tint; },
       destroy: () => container.destroy({ children: true }),
       isPlaceholder: false,
     };
@@ -939,6 +940,7 @@ export function createEnemySprite(
       g.scale.x = flip ? -1 : 1;
     },
     setAlpha: (a) => { container.alpha = a; },
+    setTint: (tint) => { g.tint = tint; },
     destroy: () => {
       if (_anim) clearInterval(_anim);
       container.destroy({ children: true });

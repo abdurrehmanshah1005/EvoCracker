@@ -87,8 +87,10 @@ export function GameScreen() {
   const isPausedRef = useRef(false);
   const trapdoorDeathPendingRef = useRef(false);
   const trapdoorDeathTimerRef = useRef(0);
+  const trapdoorDeathTimerRef = useRef(0);
   const trapdoorReturnPendingRef = useRef(false);
   const trapdoorReturnTimerRef = useRef(0);
+  const floorClearedRef = useRef(false);
 
   const [isLoaded, setIsLoaded] = useState(false);
   const isLoadedRef = useRef(false);
@@ -159,6 +161,7 @@ export function GameScreen() {
     // Reset death/pause state
     playerDeadRef.current = false;
     isPausedRef.current = false;
+    floorClearedRef.current = false;
     trapdoorDeathPendingRef.current = false;
     trapdoorDeathTimerRef.current = 0;
     trapdoorReturnPendingRef.current = false;
@@ -201,7 +204,13 @@ export function GameScreen() {
       canvasRef.current.style.outline = 'none';
       canvasRef.current.focus();
 
-      const camera = new Camera({ viewportWidth: window.innerWidth, viewportHeight: window.innerHeight, zoom: 3.0 });
+      const camera = new Camera({ 
+        viewportWidth: window.innerWidth, 
+        viewportHeight: window.innerHeight, 
+        zoom: 3.0,
+        deadzoneWidth: 0,
+        deadzoneHeight: 0
+      });
       cameraRef.current = camera;
 
       const input = InputManager.getInstance();
@@ -590,7 +599,8 @@ export function GameScreen() {
         enemiesRef.current = enemiesRef.current.filter((e) => e.isAlive);
 
         // ── CHECK FLOOR COMPLETE ───────────────────────────────────
-        if (isLoadedRef.current && enemiesRef.current.length === 0 && spawnPts.length > 0) {
+        if (isLoadedRef.current && enemiesRef.current.length === 0 && spawnPts.length > 0 && !floorClearedRef.current) {
+          floorClearedRef.current = true;
           showNotification(`✅ Floor ${dungeon.floor} cleared! Find the exit (green glow)`);
           if (p.tileX === dungeon.exitPoint.x && p.tileY === dungeon.exitPoint.y) {
             showNotification('🚪 Next floor!');

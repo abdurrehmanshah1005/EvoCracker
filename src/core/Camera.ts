@@ -66,8 +66,20 @@ export class Camera {
     this.y = lerp(this.y, this.targetY, speed);
 
     // Clamp to world bounds
-    this.x = clamp(this.x, 0, Math.max(0, this.config.worldWidth - this.config.viewportWidth / this.config.zoom));
-    this.y = clamp(this.y, 0, Math.max(0, this.config.worldHeight - this.config.viewportHeight / this.config.zoom));
+    const maxX = this.config.worldWidth - this.config.viewportWidth / this.config.zoom;
+    const maxY = this.config.worldHeight - this.config.viewportHeight / this.config.zoom;
+
+    if (maxX < 0) {
+      this.x = maxX / 2;
+    } else {
+      this.x = clamp(this.x, 0, maxX);
+    }
+
+    if (maxY < 0) {
+      this.y = maxY / 2;
+    } else {
+      this.y = clamp(this.y, 0, maxY);
+    }
   }
 
   /** Snap camera to target instantly */
