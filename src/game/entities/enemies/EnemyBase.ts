@@ -73,6 +73,7 @@ export class EnemyBase {
   set alertState(newState: AlertState) {
     if (this._alertState !== AlertState.CHASING && newState === AlertState.CHASING) {
       this.triggerAlertEffect();
+      this.stunnedTimer = 0.5; // Stun the enemy briefly so they stop and play the effect
     }
     this._alertState = newState;
   }
@@ -180,7 +181,15 @@ export class EnemyBase {
   /** Main update — called every frame */
   update(dt: number, grid: Grid, playerTileX: number, playerTileY: number): void {
     if (!this.isAlive) return;
-    if (this.stunnedTimer > 0) { this.stunnedTimer -= dt; return; }
+    
+    // Always update sprite and visual effects regardless of stun
+    this.container.x = this.pixelX;
+    this.container.y = this.pixelY + this.visualYOffset;
+
+    if (this.stunnedTimer > 0) { 
+      this.stunnedTimer -= dt; 
+      return; 
+    }
 
     this.performance.survivalTime += dt;
     this.performance.tilesVisited.add(`${this.tileX},${this.tileY}`);
@@ -206,10 +215,6 @@ export class EnemyBase {
     const lerpSpeed = Math.min(1, dt * 10);
     this.pixelX = lerp(this.pixelX, targetPX, lerpSpeed);
     this.pixelY = lerp(this.pixelY, targetPY, lerpSpeed);
-
-    // Update sprite
-    this.container.x = this.pixelX;
-    this.container.y = this.pixelY + this.visualYOffset;
 
     // Face direction of movement
     const movDx = targetPX - this.pixelX;
