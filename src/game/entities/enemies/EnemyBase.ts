@@ -7,7 +7,7 @@
 //   - This gives smooth movement instead of teleporting tile-to-tile
 // ========================
 
-import { Container } from 'pixi.js';
+import { Container, Text, TextStyle } from 'pixi.js';
 import { EnemyType, AlgorithmType, AlertState, TILE_SIZE, ENEMY_DEFAULT_ALGORITHM } from '@utils/constants';
 import { createEnemySprite, updateHealthBar, type GameSprite } from '@core/SpriteFactory';
 import {
@@ -16,7 +16,7 @@ import {
 } from '@ai/behavior/BehaviorTree';
 import { BTStatus } from '@utils/constants';
 import { createRandomGenome, getPreferredAlgorithm, type Genome } from '@ai/evolution/GeneticAlgorithm';
-import { findPath } from '@ai/pathfinding/AlgorithmRegistry';
+import { PathfindingClient } from '@ai/worker/PathfindingClient';
 import type { Grid } from '@ai/pathfinding/Grid';
 import { lerp } from '@utils/math';
 import { uuid } from '@utils/random';
@@ -64,7 +64,18 @@ export class EnemyBase {
   blackboard: Blackboard;
   behaviorTree: BehaviorTree;
   currentAlgorithm: AlgorithmType;
-  alertState: AlertState;
+  private _alertState: AlertState = AlertState.IDLE;
+
+  get alertState(): AlertState {
+    return this._alertState;
+  }
+
+  set alertState(newState: AlertState) {
+    if (this._alertState !== AlertState.CHASING && newState === AlertState.CHASING) {
+      this.triggerAlertEffect();
+    }
+    this._alertState = newState;
+  }
 
   // Path following
   currentPath: { x: number; y: number }[] = [];
@@ -87,6 +98,7 @@ export class EnemyBase {
   gameSprite: GameSprite;
   container: Container;
   facingRight: boolean = true;
+  visualYOffset: number = 0;
 
   // Analytics
   nodesExpanded: number = 0;
@@ -197,7 +209,7 @@ export class EnemyBase {
 
     // Update sprite
     this.container.x = this.pixelX;
-    this.container.y = this.pixelY;
+    this.container.y = this.pixelY + this.visualYOffset;
 
     // Face direction of movement
     const movDx = targetPX - this.pixelX;
@@ -254,8 +266,10 @@ export class EnemyBase {
     if (this.moveAccumulator > 2) this.moveAccumulator = 0;
   }
 
-  /** Request a new path */
-  requestPath(grid: Grid, targetX: number, targetY: number): void {
+  /** Request a new path asynchronously */
+  async requestPath(grid: Grid, targetX: number, targetY: number): Promise<void> {
+    if (this.pathRequestPending) return;
+
     // Don't re-request same target with an active path
     if (
       this.lastPathTarget?.x === targetX &&
@@ -265,27 +279,34 @@ export class EnemyBase {
     ) return;
 
     this.lastPathTarget = { x: targetX, y: targetY };
+    this.pathRequestPending = true;
 
     const algo = this.isJammed ? AlgorithmType.DFS : this.getActiveAlgorithm();
 
-    const result = findPath({
-      algorithm: algo,
-      grid,
-      startX: this.tileX,
-      startY: this.tileY,
-      goalX: targetX,
-      goalY: targetY,
-      depthLimit: Math.round(4 + this.genome.persistence * 12),
-    });
+    try {
+      const result = await PathfindingClient.getInstance().requestPath({
+        algorithm: algo,
+        startX: this.tileX,
+        startY: this.tileY,
+        goalX: targetX,
+        goalY: targetY,
+        depthLimit: Math.round(4 + this.genome.persistence * 12),
+      });
 
-    if (result.path.length > 1) {
-      this.currentPath = result.path;
-      this.pathIndex = 1; // Index 0 = current position
-      this.moveAccumulator = 0;
+      if (!this.isAlive) return;
+
+      if (result && result.path.length > 1) {
+        this.currentPath = result.path;
+        this.pathIndex = 1; // Index 0 = current position
+      }
+
+      this.nodesExpanded = result.nodesExpanded;
+      this.pathComputeTimeMs = result.timeMs;
+    } catch (err) {
+      console.warn('Pathfinding request failed', err);
+    } finally {
+      this.pathRequestPending = false;
     }
-
-    this.nodesExpanded = result.nodesExpanded;
-    this.pathComputeTimeMs = result.timeMs;
   }
 
   /** Get a random patrol destination near home */
@@ -402,5 +423,50 @@ export class EnemyBase {
       pathComputeTimeMs: this.pathComputeTimeMs,
       position: { x: this.tileX, y: this.tileY },
     };
+  }
+
+  triggerAlertEffect() {
+    const text = new Text({
+      text: '!',
+      style: new TextStyle({
+        fontFamily: 'Press Start 2P',
+        fontSize: 16,
+        fill: 0xff2222,
+        stroke: { color: 0xffffff, width: 2 },
+      }),
+    });
+    text.anchor.set(0.5, 1);
+    text.x = 0;
+    text.y = -30;
+    this.container.addChild(text);
+
+    let elapsed = 0;
+    let lastTime = performance.now();
+    
+    const animate = () => {
+      const now = performance.now();
+      const dt = (now - lastTime) / 1000;
+      lastTime = now;
+      elapsed += dt;
+      
+      // Exclamation mark animation
+      text.y = -30 - Math.sin(elapsed * 10) * 8;
+      text.alpha = 1 - Math.max(0, (elapsed - 0.8) * 5); 
+      
+      // Small jump effect
+      if (elapsed < 0.3) {
+        this.visualYOffset = -Math.sin((elapsed / 0.3) * Math.PI) * 12;
+      } else {
+        this.visualYOffset = 0;
+      }
+      
+      if (elapsed > 1.0) {
+        this.container.removeChild(text);
+        text.destroy();
+      } else {
+        requestAnimationFrame(animate);
+      }
+    };
+    requestAnimationFrame(animate);
   }
 }
