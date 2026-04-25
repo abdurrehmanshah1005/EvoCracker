@@ -105,7 +105,7 @@ const DUNGEON_TILESET_ANIMS: { localId: number; frames: TiledAnimFrame[] }[] = [
   { localId: 233, frames: [{ tileId: 233, durationMs: 200 }, { tileId: 183, durationMs: 100 }] },
   { localId: 254, frames: [
     { tileId: 254, durationMs: 100 }, { tileId: 229, durationMs: 100 },
-    { tileId: 204, durationMs: 300 }, { tileId: 229, durationMs: 100 },
+    { tileId: 229, durationMs: 100 },
     { tileId: 254, durationMs: 300 },
   ]},
 ];

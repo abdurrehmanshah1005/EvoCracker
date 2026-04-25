@@ -46,6 +46,10 @@ const CHEST_ANIM_GIDS = new Set<number>([626, 642]);
 const SPEAR_TRAP_ANIM_GIDS = new Set<number>([255]);
 const WOODEN_TRAPDOOR_ANIM_GIDS = new Set<number>([208, 209, 233, 234]);
 
+const FLIPPED_HORIZONTALLY_FLAG = 0x80000000;
+const FLIPPED_VERTICALLY_FLAG = 0x40000000;
+const FLIPPED_DIAGONALLY_FLAG = 0x20000000;
+
 type InteractiveAnimKind = 'chest' | 'spear';
 
 interface InteractiveTileAnim {
@@ -59,6 +63,7 @@ interface InteractiveTileAnim {
   hasTriggeredDamage: boolean;
   isWaveTrap: boolean;
   waveOffsetMs: number;
+  spearGroupId: number;
   holdMs: number;
 }
 
@@ -446,7 +451,6 @@ export function GameScreen() {
         }
 
         if (playerAttackAnimTimer > 0) playerAttackAnimTimer -= dtSeconds;
-
         p.sprite!.container.x = p.pixelX;
         p.sprite!.container.y = p.pixelY;
         p.sprite?.setAlpha(p.state.isInvisible ? 0.3 : 1);
@@ -576,7 +580,6 @@ export function GameScreen() {
             if (edist <= 1.5) {
               enemy.attackTimer = enemy.attackCooldown;
               enemy.gameSprite.setAnimation('attack');
-              
               const dmg = enemy.attackDamage;
               enemy.performance.damageDealt += dmg;
               p.health = Math.max(0, p.health - dmg);
@@ -809,10 +812,12 @@ function renderTilemap(
           if (animFrames && animFrames.length >= 2) {
             const cleanGid = stripTiledFlipFlags(rawGid);
             const animSprite = new AnimatedSprite(animFrames);
-            animSprite.x = px;
-            animSprite.y = py;
+            animSprite.anchor.set(0.5);
+            animSprite.x = px + TILE_SIZE / 2;
+            animSprite.y = py + TILE_SIZE / 2;
             animSprite.width = TILE_SIZE;
             animSprite.height = TILE_SIZE;
+            applyTiledFlipFlags(animSprite, rawGid);
 
             if (WOODEN_TRAPDOOR_ANIM_GIDS.has(cleanGid)) {
               // Slow down wooden trapdoor animation.
@@ -835,6 +840,7 @@ function renderTilemap(
                 hasTriggeredDamage: false,
                 isWaveTrap: false,
                 waveOffsetMs: 0,
+                spearGroupId: -1,
                 holdMs: 0,
               });
             } else if (SPEAR_TRAP_ANIM_GIDS.has(cleanGid)) {
@@ -852,6 +858,7 @@ function renderTilemap(
                 hasTriggeredDamage: false,
                 isWaveTrap: false,
                 waveOffsetMs: 0,
+                spearGroupId: -1,
                 holdMs: 0,
               });
             } else if (WOODEN_TRAPDOOR_ANIM_GIDS.has(cleanGid)) {
@@ -876,10 +883,12 @@ function renderTilemap(
             const tex = getTiledTileTexture(rawGid, firstGid);
             if (tex) {
               const sprite = new Sprite(tex);
-              sprite.x = px;
-              sprite.y = py;
+              sprite.anchor.set(0.5);
+              sprite.x = px + TILE_SIZE / 2;
+              sprite.y = py + TILE_SIZE / 2;
               sprite.width = TILE_SIZE;
               sprite.height = TILE_SIZE;
+              applyTiledFlipFlags(sprite, rawGid);
               layerContainer.addChild(sprite);
             }
           }
@@ -988,6 +997,42 @@ function renderTilemap(
   return runtime;
 }
 
+function applyTiledFlipFlags(sprite: Sprite | AnimatedSprite, rawGid: number) {
+  const gid = rawGid >>> 0;
+  const flipH = (gid & FLIPPED_HORIZONTALLY_FLAG) !== 0;
+  const flipV = (gid & FLIPPED_VERTICALLY_FLAG) !== 0;
+  const flipD = (gid & FLIPPED_DIAGONALLY_FLAG) !== 0;
+
+  // Reset transform baseline first.
+  sprite.rotation = 0;
+  const baseScaleX = Math.abs(sprite.scale.x);
+  const baseScaleY = Math.abs(sprite.scale.y);
+  let sx = 1;
+  let sy = 1;
+  let rot = 0;
+
+  // Tiled orthogonal flip decoding, including diagonal flag.
+  if (flipD) {
+    if (flipH && flipV) {
+      rot = Math.PI / 2;
+      sx = -1;
+    } else if (flipH) {
+      rot = Math.PI / 2;
+    } else if (flipV) {
+      rot = -Math.PI / 2;
+    } else {
+      rot = -Math.PI / 2;
+      sx = -1;
+    }
+  } else {
+    sx = flipH ? -1 : 1;
+    sy = flipV ? -1 : 1;
+  }
+
+  sprite.scale.set(baseScaleX * sx, baseScaleY * sy);
+  sprite.rotation = rot;
+}
+
 function updateInteractiveTileAnimations(
   runtime: TilemapAnimRuntime,
   playerTileX: number,
@@ -1000,8 +1045,23 @@ function updateInteractiveTileAnimations(
   const dtMs = dtSeconds * 1000;
   runtime.waveTimeMs += dtMs;
 
+  const NON_WAVE_TRIGGER_MS = 500;
   const WAVE_PERIOD_MS = 1200;
   const WAVE_ACTIVE_MS = 350;
+
+  const standingOnNonWaveSpear = runtime.interactive.find((tile) => (
+    tile.kind === 'spear' &&
+    !tile.isWaveTrap &&
+    tile.tileX === playerTileX &&
+    tile.tileY === playerTileY
+  ));
+
+  if (standingOnNonWaveSpear) {
+    standingOnNonWaveSpear.holdMs += dtMs;
+  }
+
+  const activeNonWaveGroupId = standingOnNonWaveSpear?.spearGroupId ?? -1;
+  const nonWavePrimed = !!standingOnNonWaveSpear && standingOnNonWaveSpear.holdMs >= NON_WAVE_TRIGGER_MS;
 
   for (const tile of runtime.interactive) {
     if (tile.kind === 'chest') {
@@ -1019,6 +1079,31 @@ function updateInteractiveTileAnimations(
           tile.isActive = true;
           tile.hasBeenOpened = true;
           tile.sprite.gotoAndPlay(0);
+        }
+      }
+      continue;
+    }
+
+    // Non-wave spear traps animate as a connected nearby group.
+    if (tile.spearGroupId >= 0 && !tile.isWaveTrap) {
+      const shouldBeActive =
+        nonWavePrimed &&
+        activeNonWaveGroupId >= 0 &&
+        tile.spearGroupId === activeNonWaveGroupId;
+
+      if (shouldBeActive) {
+        if (!tile.isActive) {
+          tile.isActive = true;
+          tile.sprite.gotoAndPlay(0);
+        }
+      } else {
+        if (tile !== standingOnNonWaveSpear) {
+          tile.holdMs = 0;
+        }
+        tile.hasTriggeredDamage = false;
+        if (tile.isActive) {
+          tile.isActive = false;
+          tile.sprite.gotoAndStop(0);
         }
       }
       continue;
@@ -1045,25 +1130,12 @@ function updateInteractiveTileAnimations(
       }
       continue;
     }
+  }
 
-    const standingOnTrap = tile.tileX === playerTileX && tile.tileY === playerTileY;
-    if (standingOnTrap) {
-      tile.holdMs += dtMs;
-      if (!tile.isActive && tile.holdMs >= 25) {
-        tile.isActive = true;
-        tile.sprite.gotoAndPlay(0);
-      }
-      if (tile.isActive && !tile.hasTriggeredDamage) {
-        tile.hasTriggeredDamage = true;
-        onSpearTrapHit(5);
-      }
-    } else {
-      tile.holdMs = 0;
-      tile.hasTriggeredDamage = false;
-      if (tile.isActive) {
-        tile.isActive = false;
-        tile.sprite.gotoAndStop(0);
-      }
+  if (standingOnNonWaveSpear && activeNonWaveGroupId >= 0) {
+    if (standingOnNonWaveSpear.holdMs >= NON_WAVE_TRIGGER_MS && !standingOnNonWaveSpear.hasTriggeredDamage) {
+      standingOnNonWaveSpear.hasTriggeredDamage = true;
+      onSpearTrapHit(5);
     }
   }
 }
@@ -1182,6 +1254,12 @@ function markWaveSpearChunkNearExit(
   }
 
   if (components.length === 0) return;
+
+  for (let i = 0; i < components.length; i++) {
+    for (const tile of components[i]) {
+      tile.spearGroupId = i;
+    }
+  }
 
   const candidates = components.filter((c) => c.length >= 3);
   if (candidates.length === 0) return;
@@ -1304,3 +1382,7 @@ function drawDebugOverlays(
     }
   }
 }
+function addScore(arg0: number) {
+  throw new Error('Function not implemented.');
+}
+
