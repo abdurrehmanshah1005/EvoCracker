@@ -79,6 +79,9 @@ interface TilemapAnimRuntime {
   interactive: InteractiveTileAnim[];
   trapdoors: TrapdoorTileAnim[];
   waveTimeMs: number;
+  nonWaveActiveGroupId: number;
+  nonWaveGroupHoldMs: number;
+  nonWaveGroupDamaged: boolean;
 }
 
 export function GameScreen() {
@@ -784,6 +787,9 @@ function renderTilemap(
     interactive: [],
     trapdoors: [],
     waveTimeMs: 0,
+    nonWaveActiveGroupId: -1,
+    nonWaveGroupHoldMs: 0,
+    nonWaveGroupDamaged: false,
   };
 
   const tileContainer = new Container();
@@ -1055,13 +1061,25 @@ function updateInteractiveTileAnimations(
     tile.tileX === playerTileX &&
     tile.tileY === playerTileY
   ));
+  const activeNonWaveGroupId = standingOnNonWaveSpear?.spearGroupId ?? -1;
 
-  if (standingOnNonWaveSpear) {
-    standingOnNonWaveSpear.holdMs += dtMs;
+  if (activeNonWaveGroupId >= 0) {
+    if (runtime.nonWaveActiveGroupId === activeNonWaveGroupId) {
+      runtime.nonWaveGroupHoldMs += dtMs;
+    } else {
+      runtime.nonWaveActiveGroupId = activeNonWaveGroupId;
+      runtime.nonWaveGroupHoldMs = dtMs;
+      runtime.nonWaveGroupDamaged = false;
+    }
+  } else {
+    runtime.nonWaveActiveGroupId = -1;
+    runtime.nonWaveGroupHoldMs = 0;
+    runtime.nonWaveGroupDamaged = false;
   }
 
-  const activeNonWaveGroupId = standingOnNonWaveSpear?.spearGroupId ?? -1;
-  const nonWavePrimed = !!standingOnNonWaveSpear && standingOnNonWaveSpear.holdMs >= NON_WAVE_TRIGGER_MS;
+  const nonWavePrimed =
+    runtime.nonWaveActiveGroupId >= 0 &&
+    runtime.nonWaveGroupHoldMs >= NON_WAVE_TRIGGER_MS;
 
   for (const tile of runtime.interactive) {
     if (tile.kind === 'chest') {
@@ -1097,9 +1115,7 @@ function updateInteractiveTileAnimations(
           tile.sprite.gotoAndPlay(0);
         }
       } else {
-        if (tile !== standingOnNonWaveSpear) {
-          tile.holdMs = 0;
-        }
+        tile.holdMs = 0;
         tile.hasTriggeredDamage = false;
         if (tile.isActive) {
           tile.isActive = false;
@@ -1132,11 +1148,9 @@ function updateInteractiveTileAnimations(
     }
   }
 
-  if (standingOnNonWaveSpear && activeNonWaveGroupId >= 0) {
-    if (standingOnNonWaveSpear.holdMs >= NON_WAVE_TRIGGER_MS && !standingOnNonWaveSpear.hasTriggeredDamage) {
-      standingOnNonWaveSpear.hasTriggeredDamage = true;
-      onSpearTrapHit(5);
-    }
+  if (nonWavePrimed && activeNonWaveGroupId >= 0 && !runtime.nonWaveGroupDamaged) {
+    runtime.nonWaveGroupDamaged = true;
+    onSpearTrapHit(5);
   }
 }
 
