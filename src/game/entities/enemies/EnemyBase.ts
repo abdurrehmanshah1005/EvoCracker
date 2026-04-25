@@ -32,7 +32,10 @@ export interface EnemyPerformanceLive {
 }
 
 export class EnemyBase {
+  private static nextEntityId = 1;
+
   readonly id: string;
+  readonly entityId: number;
   readonly type: EnemyType;
 
   // Position: tile coords are authoritative
@@ -99,6 +102,7 @@ export class EnemyBase {
 
   isAlive: boolean = true;
   stunnedTimer: number = 0;
+  private difficultyApplied = false;
 
   constructor(
     type: EnemyType,
@@ -108,6 +112,7 @@ export class EnemyBase {
     behaviorTree?: BehaviorTree
   ) {
     this.id = uuid();
+    this.entityId = EnemyBase.nextEntityId++;
     this.type = type;
     this.tileX = tileX;
     this.tileY = tileY;
@@ -145,6 +150,19 @@ export class EnemyBase {
     this.container.x = this.pixelX;
     this.container.y = this.pixelY;
     this.container.zIndex = 5;
+  }
+
+  /** Scale core stats by iteration difficulty (applied once per instance). */
+  applyDifficulty(multiplier: number): void {
+    if (this.difficultyApplied) return;
+    const m = Math.max(1, multiplier);
+    this.maxHealth = Math.round(this.maxHealth * (1 + (m - 1) * 0.65));
+    this.health = this.maxHealth;
+    this.attackDamage = Math.round(this.attackDamage * (1 + (m - 1) * 0.55));
+    this.speed *= 1 + (m - 1) * 0.2;
+    this.visionRange *= 1 + (m - 1) * 0.2;
+    this.blackboard.visionRange = this.visionRange;
+    this.difficultyApplied = true;
   }
 
   /** Main update — called every frame */
@@ -370,11 +388,15 @@ export class EnemyBase {
 
   getAnalyticsSnapshot() {
     return {
-      entityId: 0,
+      entityId: this.entityId,
       enemyType: this.type,
       algorithm: this.getActiveAlgorithm(),
       alertState: this.alertState,
       genomeId: this.genome.id,
+      generation: this.genome.generation,
+      speedGene: this.genome.speed,
+      visionGene: this.genome.vision,
+      aggressionGene: this.genome.aggression,
       nodesExpanded: this.nodesExpanded,
       pathLength: this.currentPath.length,
       pathComputeTimeMs: this.pathComputeTimeMs,

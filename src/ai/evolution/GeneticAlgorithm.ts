@@ -4,7 +4,7 @@
 // ========================
 
 import { AlgorithmType } from '@utils/constants';
-import { uuid, randomFloat, randomGaussian, randomInt, weightedRandomIndex, randomBool } from '@utils/random';
+import { uuid, randomFloat, randomGaussian, randomInt, randomBool } from '@utils/random';
 import { clamp } from '@utils/math';
 
 // --- Genome Definition ---
@@ -67,8 +67,19 @@ export function createRandomGenome(generation = 0): Genome {
 /** Get the preferred algorithm from genome weights */
 export function getPreferredAlgorithm(genome: Genome): AlgorithmType {
   const types = Object.keys(genome.algorithmWeights) as AlgorithmType[];
-  const weights = types.map((t) => genome.algorithmWeights[t]);
-  return types[weightedRandomIndex(weights)];
+  let best = types[0];
+  let bestWeight = genome.algorithmWeights[best] ?? 0;
+
+  for (let i = 1; i < types.length; i++) {
+    const t = types[i];
+    const w = genome.algorithmWeights[t] ?? 0;
+    if (w > bestWeight) {
+      best = t;
+      bestWeight = w;
+    }
+  }
+
+  return best;
 }
 
 // --- Player Profile (drives fitness evaluation) ---

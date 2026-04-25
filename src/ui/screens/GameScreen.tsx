@@ -17,11 +17,32 @@ import { createPlayerSprite, initSpriteAssets, CHARACTER_DEFS, createCharacterEn
 import { createEnemy, getEnemyTypesForFloor } from '@game/entities/enemies/Archetypes';
 import { updateVision } from '@game/systems/VisionSystem';
 import { createDefaultItemLoadout, updateItems, type PlayerState } from '@game/entities/items/ItemSystem';
-import { createRandomGenome } from '@ai/evolution/GeneticAlgorithm';
+import {
+  createRandomGenome,
+  createPlayerProfile,
+  classifyPlaystyle,
+  calculateFitness,
+  evolvePopulation,
+  type Genome,
+  type PlayerProfile,
+} from '@ai/evolution/GeneticAlgorithm';
 import { EventBus, GameEvents } from '@core/EventBus';
 import type { EnemyBase } from '@game/entities/enemies/EnemyBase';
 import { randomInt } from '@utils/random';
 import { loadTileset, isTilesetLoaded, getTileTexture, getWallTexture, loadItemAnimations, getTiledTileTexture, isTiledTilesetLoaded, getTiledTileAnimation, stripTiledFlipFlags } from '@core/DungeonTilesetLoader';
+
+const MAX_INTELLIGENCE_RUNS = 1;
+
+// Temporary balancing mode for validating GA evolution without getting stuck on run 1.
+const TEMP_EASY_GA_TEST_MODE = false;
+const EASY_PLAYER_HEALTH = 260;
+const EASY_PLAYER_ATTACK_DAMAGE = 36;
+const EASY_PLAYER_ATTACK_COOLDOWN = 0.32;
+const EASY_PLAYER_MOVE_SPEED = 260;
+const EASY_ENEMY_DAMAGE_SCALE = 0.45;
+const EASY_ENEMY_SPEED_SCALE = 0.75;
+const EASY_ENEMY_VISION_SCALE = 0.82;
+const EASY_ENEMY_HEALTH_SCALE = 0.62;
 
 // ===== TILE COLORS — High contrast ==========================
 const TILE_COLORS: Record<number, number> = {
@@ -75,6 +96,12 @@ interface TrapdoorTileAnim {
   isCollapsed: boolean;
 }
 
+interface WaveBarrierSwitch {
+  tileX: number;
+  tileY: number;
+  isActivated: boolean;
+}
+
 interface TilemapAnimRuntime {
   interactive: InteractiveTileAnim[];
   trapdoors: TrapdoorTileAnim[];
@@ -82,6 +109,8 @@ interface TilemapAnimRuntime {
   nonWaveActiveGroupId: number;
   nonWaveGroupHoldMs: number;
   nonWaveGroupDamaged: boolean;
+  waveTrapsDisabled: boolean;
+  waveBarrierSwitch: WaveBarrierSwitch | null;
 }
 
 export function GameScreen() {
@@ -98,8 +127,29 @@ export function GameScreen() {
   const trapdoorReturnPendingRef = useRef(false);
   const trapdoorReturnTimerRef = useRef(0);
   const floorClearedRef = useRef(false);
+  const floorAdvancePendingRef = useRef(false);
+  const allSpawnedEnemiesRef = useRef<EnemyBase[]>([]);
+  const evolvingPopulationRef = useRef<Genome[]>([]);
+  const intelligenceRunRef = useRef(1);
+  const generationRef = useRef(0);
+  const playerVelocityRef = useRef({ x: 0, y: 0 });
+  const prevPlayerTileRef = useRef({ x: 0, y: 0 });
+  const runStartTimeRef = useRef(0);
+  const learningCommittedRef = useRef(false);
+  const playerProfileRef = useRef<PlayerProfile>(createPlayerProfile());
+  const runTrackerRef = useRef({
+    path: [] as { x: number; y: number; t: number }[],
+    visited: new Set<string>(),
+    attacks: 0,
+    itemsUsed: 0,
+    kills: 0,
+    damageTaken: 0,
+    startTs: 0,
+  });
 
   const [isLoaded, setIsLoaded] = useState(false);
+  const [runSeed, setRunSeed] = useState(0);
+  const [intelligenceRun, setIntelligenceRun] = useState(1);
   const isLoadedRef = useRef(false);
   const [notification, setNotification] = useState<string | null>(null);
   const notifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -131,6 +181,9 @@ export function GameScreen() {
   const isPaused = useGameStore((s) => s.isPaused);
   const selectedCharacter = useGameStore((s) => s.selectedCharacter);
   const selectedMap = useGameStore((s) => s.selectedMap);
+  const currentDifficulty = useGameStore((s) => s.currentDifficulty);
+  const iteration = useGameStore((s) => s.iteration);
+  const learnedPopulation = useGameStore((s) => s.population);
 
   // Store action refs — these never change identity, but using refs
   // prevents initGame from being recreated when other state changes
@@ -140,9 +193,15 @@ export function GameScreen() {
     setFps: useGameStore.getState().setFps,
     setEnemyAnalytics: useGameStore.getState().setEnemyAnalytics,
     setPlayerHealth: useGameStore.getState().setPlayerHealth,
+    setPlayerMaxHealth: useGameStore.getState().setPlayerMaxHealth,
     addScore: useGameStore.getState().addScore,
     setScreen: useGameStore.getState().setScreen,
     togglePause: useGameStore.getState().togglePause,
+    nextFloor: useGameStore.getState().nextFloor,
+    setPopulation: useGameStore.getState().setPopulation,
+    setPlayerProfile: useGameStore.getState().setPlayerProfile,
+    addGenerationStats: useGameStore.getState().addGenerationStats,
+    completeIterationLearning: useGameStore.getState().completeIterationLearning,
   });
 
   // Use refs for values used in the game loop so they don't cause re-init
@@ -169,10 +228,28 @@ export function GameScreen() {
     playerDeadRef.current = false;
     isPausedRef.current = false;
     floorClearedRef.current = false;
+    floorAdvancePendingRef.current = false;
     trapdoorDeathPendingRef.current = false;
     trapdoorDeathTimerRef.current = 0;
     trapdoorReturnPendingRef.current = false;
     trapdoorReturnTimerRef.current = 0;
+    allSpawnedEnemiesRef.current = [];
+    playerVelocityRef.current = { x: 0, y: 0 };
+    prevPlayerTileRef.current = { x: 0, y: 0 };
+    runStartTimeRef.current = performance.now();
+    learningCommittedRef.current = false;
+    intelligenceRunRef.current = iteration;
+    generationRef.current = useGameStore.getState().generation;
+    playerProfileRef.current = createPlayerProfile();
+    runTrackerRef.current = {
+      path: [],
+      visited: new Set<string>(),
+      attacks: 0,
+      itemsUsed: 0,
+      kills: 0,
+      damageTaken: 0,
+      startTs: performance.now(),
+    };
 
     // ── Clean up any previous instance (React StrictMode fix) ────
     if (appRef.current) {
@@ -250,7 +327,9 @@ export function GameScreen() {
 
       // ── Generate dungeon ──────────────────────────────────────────
       const biome = getBiomeForFloor(currentFloor);
+      console.error("DEBUG: Start generateDungeon");
       const dungeon = await generateDungeon(GRID_COLS, GRID_ROWS, currentFloor, biome, selectedMap);
+      console.error("DEBUG: Finish generateDungeon");
       if (signal.aborted) return;
 
       storeActionsRef.current.setDungeonData(dungeon);
@@ -266,6 +345,7 @@ export function GameScreen() {
       gridRef.current = grid;
 
       // ── Render tilemap ────────────────────────────────────────────
+      console.error("DEBUG: Rendering tilemap");
       const tilemapAnimRuntime = renderTilemap(
         worldContainer,
         dungeon.tiles,
@@ -274,8 +354,18 @@ export function GameScreen() {
         dungeon.tiledLayers,
         dungeon.tiledFirstGid,
       );
-      markWaveSpearChunkNearExit(tilemapAnimRuntime, dungeon.exitPoint.x, dungeon.exitPoint.y);
-      renderMarkers(worldContainer, dungeon);
+      console.error("DEBUG: markWaveSpearChunkNearExit");
+      markWaveSpearChunkNearExit(
+        tilemapAnimRuntime,
+        dungeon.exitPoint.x,
+        dungeon.exitPoint.y,
+        currentDifficulty,
+        dungeon.tiles,
+        dungeon.width,
+        dungeon.height,
+      );
+      console.error("DEBUG: renderMarkers");
+      renderMarkers(worldContainer, dungeon, tilemapAnimRuntime.waveBarrierSwitch);
 
       // ── Player ────────────────────────────────────────────────────
       const playerSprite = createPlayerSprite(selectedCharacter);
@@ -291,12 +381,20 @@ export function GameScreen() {
       playerRef.current.sprite = playerSprite;
       playerRef.current.state.tileX = spawnX;
       playerRef.current.state.tileY = spawnY;
-      playerRef.current.health = 100;
+      playerRef.current.health = TEMP_EASY_GA_TEST_MODE ? EASY_PLAYER_HEALTH : 500;
+      playerRef.current.maxHealth = TEMP_EASY_GA_TEST_MODE ? EASY_PLAYER_HEALTH : 500;
+      playerRef.current.attackDamage = TEMP_EASY_GA_TEST_MODE ? EASY_PLAYER_ATTACK_DAMAGE : 20;
       playerRef.current.kills = 0;
+
+      storeActionsRef.current.setPlayerHealth(playerRef.current.health);
+      storeActionsRef.current.setPlayerMaxHealth(playerRef.current.maxHealth);
 
       playerSprite.container.x = playerRef.current.pixelX;
       playerSprite.container.y = playerRef.current.pixelY;
       camera.snapTo(playerRef.current.pixelX, playerRef.current.pixelY);
+      prevPlayerTileRef.current = { x: spawnX, y: spawnY };
+      runTrackerRef.current.visited.add(`${spawnX},${spawnY}`);
+      runTrackerRef.current.path.push({ x: spawnX, y: spawnY, t: 0 });
 
       // ── Spawn enemies ─────────────────────────────────────────────
       // Use remaining character sprites as enemies + original archetypes
@@ -305,8 +403,48 @@ export function GameScreen() {
         .filter((i) => i !== selectedCharacter);
 
       const enemyTypes = getEnemyTypesForFloor(currentFloor);
-      const maxEnemies = Math.min(dungeon.enemySpawnPoints.length, 6 + currentFloor * 3);
+      const baseEnemyCap = TEMP_EASY_GA_TEST_MODE
+        ? 3 + currentFloor
+        : 6 + currentFloor * 3;
+      const maxEnemies = Math.min(dungeon.enemySpawnPoints.length, baseEnemyCap);
       const spawnPts = dungeon.enemySpawnPoints.slice(0, maxEnemies);
+      const challengeTier = Math.max(0, intelligenceRunRef.current - 1);
+
+      const applyTempEasyTuning = (enemy: EnemyBase) => {
+        if (!TEMP_EASY_GA_TEST_MODE) return;
+
+        // Keep run 2/3 noticeably tougher while still easier than full difficulty.
+        const runScale = 1 + challengeTier * 0.18;
+        enemy.attackDamage = Math.max(2, Math.round(enemy.attackDamage * EASY_ENEMY_DAMAGE_SCALE * runScale));
+        enemy.speed = Math.max(0.9, enemy.speed * EASY_ENEMY_SPEED_SCALE * runScale);
+        enemy.visionRange = Math.max(3, enemy.visionRange * EASY_ENEMY_VISION_SCALE * runScale);
+        enemy.maxHealth = Math.max(14, Math.round(enemy.maxHealth * EASY_ENEMY_HEALTH_SCALE * runScale));
+        enemy.health = enemy.maxHealth;
+      };
+
+      const basePopulation = learnedPopulation.length > 0
+        ? learnedPopulation
+        : evolvingPopulationRef.current;
+
+      const nextGenome = (spawnIndex: number): Genome => {
+        const fromPopulation = basePopulation[spawnIndex % Math.max(1, basePopulation.length)];
+        const base = fromPopulation ? { ...fromPopulation } : createRandomGenome(Math.max(0, currentFloor - 1) + challengeTier);
+
+        base.generation = Math.max(base.generation, generationRef.current);
+        base.fitness = 0;
+        base.alive = true;
+        base.id = `${base.id}-${Date.now()}-${spawnIndex}`;
+
+        // Increase pressure each rerun so enemies become noticeably sharper.
+        base.speed = Math.min(1, base.speed + challengeTier * 0.08);
+        base.vision = Math.min(1, base.vision + challengeTier * 0.1);
+        base.persistence = Math.min(1, base.persistence + challengeTier * 0.12);
+        base.aggression = Math.min(1, base.aggression + challengeTier * 0.08);
+        base.algorithmWeights.AStar *= 1 + challengeTier * 0.25;
+        base.algorithmWeights.GreedyBFS *= 1 + challengeTier * 0.15;
+
+        return base;
+      };
 
       // Spawn character-based enemies first (one per remaining character)
       let spawnIdx = 0;
@@ -314,8 +452,10 @@ export function GameScreen() {
         const pt = spawnPts[spawnIdx];
         const charIndex = otherCharIndices[ci];
         const type = enemyTypes[randomInt(0, enemyTypes.length - 1)];
-        const genome = createRandomGenome(Math.max(0, currentFloor - 1));
+        const genome = nextGenome(spawnIdx);
         const enemy = createEnemy(type, pt.x, pt.y, genome);
+        enemy.applyDifficulty(currentDifficulty);
+        applyTempEasyTuning(enemy);
         // Replace the enemy's sprite with a character sprite
         enemy.container.removeChildren();
         const charSprite = createCharacterEnemySprite(charIndex);
@@ -326,20 +466,101 @@ export function GameScreen() {
         enemy.container.zIndex = 10;
         worldContainer.addChild(enemy.container);
         enemiesRef.current.push(enemy);
+        allSpawnedEnemiesRef.current.push(enemy);
       }
 
       // Spawn remaining enemies as normal archetypes
       for (; spawnIdx < spawnPts.length; spawnIdx++) {
         const pt = spawnPts[spawnIdx];
         const type = enemyTypes[randomInt(0, enemyTypes.length - 1)];
-        const genome = createRandomGenome(Math.max(0, currentFloor - 1));
+        const genome = nextGenome(spawnIdx);
         const enemy = createEnemy(type, pt.x, pt.y, genome);
+        enemy.applyDifficulty(currentDifficulty);
+        applyTempEasyTuning(enemy);
         enemy.container.zIndex = 10;
         worldContainer.addChild(enemy.container);
         enemiesRef.current.push(enemy);
+        allSpawnedEnemiesRef.current.push(enemy);
       }
 
-      showNotification(`Floor ${dungeon.floor} — ${dungeon.biome.toUpperCase()} — ${spawnPts.length} enemies!`);
+      const modePrefix = TEMP_EASY_GA_TEST_MODE ? 'TEST EASY MODE — ' : '';
+      showNotification(`${modePrefix}Floor ${dungeon.floor} — Iteration ${intelligenceRunRef.current} — ${spawnPts.length} enemies!`);
+
+      const finalizeLearning = (result: 'died' | 'manualExit' | 'floorClear') => {
+        if (learningCommittedRef.current) return;
+        learningCommittedRef.current = true;
+
+        const runDuration = Math.max(1, (performance.now() - runStartTimeRef.current) / 1000);
+        const profile = { ...playerProfileRef.current };
+        const path = runTrackerRef.current.path;
+        const uniqueTiles = runTrackerRef.current.visited.size;
+        const totalTiles = dungeon.width * dungeon.height;
+
+        const start = path[0] ?? { x: playerRef.current.tileX, y: playerRef.current.tileY };
+        const end = path[path.length - 1] ?? start;
+        const displacement = Math.hypot(end.x - start.x, end.y - start.y);
+        const traveled = Math.max(1, path.length - 1);
+
+        profile.totalTiles = totalTiles;
+        profile.tilesExplored = uniqueTiles;
+        profile.averageSpeed = Math.min(1, profile.timeSpentMoving / runDuration);
+        profile.explorationRate = uniqueTiles / Math.max(1, totalTiles);
+        profile.hidingFrequency = profile.totalHides / Math.max(1, runDuration);
+        profile.averageHideDuration = profile.timeSpentHiding / Math.max(1, profile.totalHides);
+        profile.engagementRate = runTrackerRef.current.attacks / Math.max(1, runDuration);
+        profile.fleeFrequency = profile.totalFlees / Math.max(1, runDuration);
+        profile.stealthToRushRatio = Math.min(1, profile.timeSpentHiding / Math.max(1, profile.timeSpentHiding + profile.timeSpentMoving));
+        profile.pathStraightness = Math.min(1, displacement / traveled);
+        profile.playstyle = classifyPlaystyle(profile);
+
+        const trainingPool = allSpawnedEnemiesRef.current.filter((e) => e.genome);
+        for (const enemy of trainingPool) {
+          enemy.genome.fitness = calculateFitness({
+            timePlayerVisible: enemy.performance.timePlayerVisible,
+            damageDealt: enemy.performance.damageDealt,
+            playerDetections: enemy.performance.playerDetections,
+            survivalTime: enemy.performance.survivalTime,
+            areaCovered: enemy.performance.tilesVisited.size,
+            timeStuck: enemy.performance.timeStuck,
+            cooperativeKills: 0,
+          }, enemy.genome, profile);
+        }
+
+        const sourcePopulation = trainingPool.map((e) => e.genome);
+        while (sourcePopulation.length < 8) {
+          sourcePopulation.push(createRandomGenome(Math.max(0, generationRef.current)));
+        }
+
+        const { newPopulation, stats } = evolvePopulation(sourcePopulation, profile);
+        evolvingPopulationRef.current = newPopulation;
+        generationRef.current = stats.generation;
+
+        const pressure = Math.min(1, stats.avgFitness / 80);
+        const nextDifficulty = Math.min(3, Math.max(1, currentDifficulty + 0.08 + pressure * 0.22));
+
+        storeActionsRef.current.completeIterationLearning({
+          run: {
+            iteration,
+            floorReached: currentFloor,
+            score: useGameStore.getState().playerScore,
+            result,
+            path,
+            uniqueTilesVisited: uniqueTiles,
+            actions: {
+              attacks: runTrackerRef.current.attacks,
+              itemsUsed: runTrackerRef.current.itemsUsed,
+              kills: runTrackerRef.current.kills,
+              damageTaken: Math.round(runTrackerRef.current.damageTaken),
+            },
+            difficultyAtRun: currentDifficulty,
+            profileSnapshot: profile,
+          },
+          profile,
+          evolvedPopulation: newPopulation,
+          stats,
+          nextDifficulty,
+        });
+      };
 
       // ── Events ────────────────────────────────────────────────────
       const bus = EventBus.getInstance();
@@ -348,12 +569,13 @@ export function GameScreen() {
         showNotification(d.msg);
       });
 
+      console.error("DEBUG: End of initGame reached, calling setIsLoaded(true)");
       isLoadedRef.current = true;
       setIsLoaded(true);
 
       // ── Staggered path timers per enemy ───────────────────────────
       const pathTimers = new Map<string, number>();
-      const PATH_INTERVAL = 0.6;
+      const BASE_PATH_INTERVAL = 0.6;
 
       let fpsCounter = 0;
       let fpsTimer = 0;
@@ -421,7 +643,8 @@ export function GameScreen() {
         const moveVec = input.getMovementVector();
         const moveX = moveVec.x;
         const moveY = moveVec.y;
-        const moveSpeed = (p.state.isInvisible ? 200 : 160) * dtSeconds;
+        const basePlayerMoveSpeed = TEMP_EASY_GA_TEST_MODE ? EASY_PLAYER_MOVE_SPEED : 160;
+        const moveSpeed = (p.state.isInvisible ? basePlayerMoveSpeed + 40 : basePlayerMoveSpeed) * dtSeconds;
 
         if (moveX !== 0 || moveY !== 0) {
           const nextX = p.pixelX + moveX * moveSpeed;
@@ -446,6 +669,26 @@ export function GameScreen() {
           p.state.tileX = p.tileX;
           p.state.tileY = p.tileY;
 
+          const elapsedMs = performance.now() - runTrackerRef.current.startTs;
+          const lastPoint = runTrackerRef.current.path[runTrackerRef.current.path.length - 1];
+          if (!lastPoint || lastPoint.x !== p.tileX || lastPoint.y !== p.tileY) {
+            runTrackerRef.current.path.push({ x: p.tileX, y: p.tileY, t: elapsedMs });
+            if (runTrackerRef.current.path.length > 2000) {
+              runTrackerRef.current.path.shift();
+            }
+          }
+          runTrackerRef.current.visited.add(`${p.tileX},${p.tileY}`);
+
+          playerProfileRef.current.totalMoves += 1;
+          playerProfileRef.current.timeSpentMoving += dtSeconds;
+
+          const prev = prevPlayerTileRef.current;
+          const dtx = p.tileX - prev.x;
+          const dty = p.tileY - prev.y;
+          playerVelocityRef.current.x = playerVelocityRef.current.x * 0.65 + dtx * 0.35;
+          playerVelocityRef.current.y = playerVelocityRef.current.y * 0.65 + dty * 0.35;
+          prevPlayerTileRef.current = { x: p.tileX, y: p.tileY };
+
           if (playerAttackAnimTimer <= 0) p.sprite?.setAnimation('walk');
           if (moveX < 0) p.sprite?.setFlipX(true);
           if (moveX > 0) p.sprite?.setFlipX(false);
@@ -469,6 +712,8 @@ export function GameScreen() {
         if (p.attackCooldown > 0) p.attackCooldown -= dtSeconds;
 
         if (input.isCodeJustPressed('Space') && p.attackCooldown <= 0) {
+          runTrackerRef.current.attacks += 1;
+          playerProfileRef.current.totalFights += 1;
           const trapdoor = getTrapdoorAt(tilemapAnimRuntime, p.tileX, p.tileY);
           if (trapdoor && !trapdoor.isCollapsed) {
             triggerTrapdoorCollapseGroup(tilemapAnimRuntime, trapdoor);
@@ -479,8 +724,8 @@ export function GameScreen() {
             return;
           }
 
-          p.attackCooldown = 0.4;
-          playerAttackAnimTimer = 0.4;
+          p.attackCooldown = TEMP_EASY_GA_TEST_MODE ? EASY_PLAYER_ATTACK_COOLDOWN : 0.4;
+          playerAttackAnimTimer = TEMP_EASY_GA_TEST_MODE ? EASY_PLAYER_ATTACK_COOLDOWN : 0.4;
           p.sprite?.setAnimation('attack');
 
           let hitCount = 0;
@@ -494,6 +739,7 @@ export function GameScreen() {
               hitCount++;
               if (!enemy.isAlive) {
                 p.kills++;
+                runTrackerRef.current.kills += 1;
                 storeActionsRef.current.addScore(100 + currentFloor * 50);
                 showNotification(`⚔️ Killed ${enemy.type}! +${100 + currentFloor * 50} pts`);
               }
@@ -522,6 +768,7 @@ export function GameScreen() {
           if (item && item.currentCooldown <= 0) {
             item.use(p.state, enemiesRef.current, grid);
             item.currentCooldown = item.cooldown;
+            runTrackerRef.current.itemsUsed += 1;
           }
         }
 
@@ -530,6 +777,11 @@ export function GameScreen() {
           enemiesRef.current, p.tileX, p.tileY,
           p.state.isInvisible || p.state.isHiding, grid, dt
         );
+
+        if (p.state.isHiding || p.state.isInvisible) {
+          playerProfileRef.current.totalHides += 1;
+          playerProfileRef.current.timeSpentHiding += dtSeconds;
+        }
 
         // ── ENEMY AI + MOVEMENT ────────────────────────────────────
         for (const enemy of enemiesRef.current) {
@@ -540,16 +792,28 @@ export function GameScreen() {
           pathTimers.set(enemy.id, timer);
 
           if (timer <= 0) {
-            pathTimers.set(enemy.id, PATH_INTERVAL + Math.random() * 0.3);
+            const isPursuing = enemy.alertState === AlertState.CHASING || enemy.alertState === AlertState.ALERT;
+            const pursuitInterval = Math.max(0.12, 0.33 - (intelligenceRunRef.current - 1) * 0.07);
+            const nextInterval = isPursuing ? pursuitInterval : BASE_PATH_INTERVAL + Math.random() * 0.3;
+            pathTimers.set(enemy.id, nextInterval);
 
             let targetX = enemy.homeX;
             let targetY = enemy.homeY;
 
-            if (enemy.alertState === AlertState.CHASING || enemy.alertState === AlertState.ALERT) {
-              targetX = enemy.blackboard.lastKnownPlayerX >= 0
-                ? enemy.blackboard.lastKnownPlayerX : p.tileX;
-              targetY = enemy.blackboard.lastKnownPlayerY >= 0
-                ? enemy.blackboard.lastKnownPlayerY : p.tileY;
+            if (isPursuing) {
+              const predictionScale = 2 + intelligenceRunRef.current;
+              const predictedX = p.tileX + Math.round(playerVelocityRef.current.x * predictionScale);
+              const predictedY = p.tileY + Math.round(playerVelocityRef.current.y * predictionScale);
+
+              const knownX = enemy.blackboard.lastKnownPlayerX >= 0
+                ? enemy.blackboard.lastKnownPlayerX
+                : predictedX;
+              const knownY = enemy.blackboard.lastKnownPlayerY >= 0
+                ? enemy.blackboard.lastKnownPlayerY
+                : predictedY;
+
+              targetX = Math.max(1, Math.min(dungeon.width - 2, knownX));
+              targetY = Math.max(1, Math.min(dungeon.height - 2, knownY));
             } else if (enemy.alertState === AlertState.SUSPICIOUS) {
               targetX = enemy.blackboard.lastKnownPlayerX >= 0
                 ? enemy.blackboard.lastKnownPlayerX : enemy.homeX;
@@ -586,12 +850,14 @@ export function GameScreen() {
               const dmg = enemy.attackDamage;
               enemy.performance.damageDealt += dmg;
               p.health = Math.max(0, p.health - dmg);
+              runTrackerRef.current.damageTaken += dmg;
               storeActionsRef.current.setPlayerHealth(p.health);
 
               p.sprite!.setTint?.(0xff4444);
               setTimeout(() => { p.sprite!.setTint?.(0xffffff); }, 200);
 
               if (p.health <= 0) {
+                finalizeLearning('died');
                 playerDeadRef.current = true;
                 showNotification('💀 You died! Game Over');
                 setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 2000);
@@ -607,16 +873,34 @@ export function GameScreen() {
         if (isLoadedRef.current && enemiesRef.current.length === 0 && spawnPts.length > 0 && !floorClearedRef.current) {
           floorClearedRef.current = true;
           showNotification(`✅ Floor ${dungeon.floor} cleared! Find the exit (green glow)`);
-          if (p.tileX === dungeon.exitPoint.x && p.tileY === dungeon.exitPoint.y) {
-            showNotification('🚪 Next floor!');
-          }
+        }
+
+        // ── EXIT / PROGRESSION ────────────────────────────────────
+        if (
+          floorClearedRef.current &&
+          !floorAdvancePendingRef.current &&
+          p.tileX === dungeon.exitPoint.x &&
+          p.tileY === dungeon.exitPoint.y
+        ) {
+          floorAdvancePendingRef.current = true;
+
+          finalizeLearning('floorClear');
+
+          intelligenceRunRef.current = iteration + 1;
+          setIntelligenceRun(iteration + 1);
+          showNotification('🏆 Learning complete for this iteration. Advancing floor with evolved enemies!');
+          setTimeout(() => {
+            storeActionsRef.current.nextFloor();
+          }, 700);
         }
 
         // ── TRAP DAMAGE ────────────────────────────────────────────
         const playerTile = dungeon.tiles[p.tileY]?.[p.tileX];
         const playerOnInteractiveSpear = isPlayerOnInteractiveSpear(tilemapAnimRuntime, p.tileX, p.tileY);
         if (playerTile === TileType.FLOOR_TRAP && !playerOnInteractiveSpear) {
-          p.health = Math.max(0, p.health - 15 * dt);
+          const trapDmg = 15 * dt;
+          p.health = Math.max(0, p.health - trapDmg);
+          runTrackerRef.current.damageTaken += trapDmg;
           storeActionsRef.current.setPlayerHealth(Math.round(p.health));
           for (const enemy of enemiesRef.current) {
             if (enemy.tileX === p.tileX && enemy.tileY === p.tileY) {
@@ -625,15 +909,27 @@ export function GameScreen() {
           }
         }
 
-        updateInteractiveTileAnimations(tilemapAnimRuntime, p.tileX, p.tileY, dtSeconds, (damage) => {
-          p.health = Math.max(0, p.health - damage);
-          storeActionsRef.current.setPlayerHealth(Math.round(p.health));
-          if (p.health <= 0 && !playerDeadRef.current) {
-            playerDeadRef.current = true;
-            showNotification('💀 You died! Game Over');
-            setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 2000);
-          }
-        });
+        updateInteractiveTileAnimations(
+          tilemapAnimRuntime,
+          p.tileX,
+          p.tileY,
+          dtSeconds,
+          currentDifficulty,
+          (damage) => {
+            p.health = Math.max(0, p.health - damage);
+            runTrackerRef.current.damageTaken += damage;
+            storeActionsRef.current.setPlayerHealth(Math.round(p.health));
+            if (p.health <= 0 && !playerDeadRef.current) {
+              finalizeLearning('died');
+              playerDeadRef.current = true;
+              showNotification('💀 You died! Game Over');
+              setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 2000);
+            }
+          },
+          () => {
+            showNotification('🔘 Barrier switch activated. Return path is now safe.');
+          },
+        );
 
         // ── ANALYTICS ──────────────────────────────────────────────
         if (analyticsTimer > 0.5) {
@@ -686,7 +982,7 @@ export function GameScreen() {
       showNotification(`Game failed to load: ${e}`);
     }
     // Only re-init when floor, character, or map changes
-  }, [currentFloor, selectedCharacter, selectedMap, showNotification]);
+  }, [currentFloor, selectedCharacter, selectedMap, showNotification, runSeed, intelligenceRun]);
 
   // ── Effect: init game with proper StrictMode cleanup ────────────
   useEffect(() => {
@@ -790,6 +1086,8 @@ function renderTilemap(
     nonWaveActiveGroupId: -1,
     nonWaveGroupHoldMs: 0,
     nonWaveGroupDamaged: false,
+    waveTrapsDisabled: false,
+    waveBarrierSwitch: null,
   };
 
   const tileContainer = new Container();
@@ -1044,16 +1342,41 @@ function updateInteractiveTileAnimations(
   playerTileX: number,
   playerTileY: number,
   dtSeconds: number,
+  difficultyMultiplier: number,
   onSpearTrapHit: (damage: number) => void,
+  onWaveBarrierDisabled: () => void,
 ) {
   if (runtime.interactive.length === 0) return;
+
+  const barrierSwitch = runtime.waveBarrierSwitch;
+  if (
+    barrierSwitch &&
+    !barrierSwitch.isActivated &&
+    playerTileX === barrierSwitch.tileX &&
+    playerTileY === barrierSwitch.tileY
+  ) {
+    barrierSwitch.isActivated = true;
+    runtime.waveTrapsDisabled = true;
+    for (const tile of runtime.interactive) {
+      if (!tile.isWaveTrap) continue;
+      tile.isActive = false;
+      tile.hasTriggeredDamage = false;
+      tile.sprite.gotoAndStop(0);
+    }
+    onWaveBarrierDisabled();
+  }
 
   const dtMs = dtSeconds * 1000;
   runtime.waveTimeMs += dtMs;
 
-  const NON_WAVE_TRIGGER_MS = 500;
-  const WAVE_PERIOD_MS = 1200;
-  const WAVE_ACTIVE_MS = 350;
+  const difficulty = Math.max(1, difficultyMultiplier);
+  const difficultyT = Math.min(1, (difficulty - 1) / 2);
+  const testModeSlowFactor = TEMP_EASY_GA_TEST_MODE ? 3.1 : 1;
+
+  // Base difficulty should be forgiving; higher difficulty speeds traps up.
+  const NON_WAVE_TRIGGER_MS = Math.round((700 - 220 * difficultyT) * testModeSlowFactor);
+  const WAVE_PERIOD_MS = Math.round((1900 - 700 * difficultyT) * testModeSlowFactor);
+  const WAVE_ACTIVE_MS = Math.round((260 + 90 * difficultyT) * (TEMP_EASY_GA_TEST_MODE ? 0.7 : 1));
 
   const standingOnNonWaveSpear = runtime.interactive.find((tile) => (
     tile.kind === 'spear' &&
@@ -1127,6 +1450,15 @@ function updateInteractiveTileAnimations(
 
     // Spear trap
     if (tile.isWaveTrap) {
+      if (runtime.waveTrapsDisabled) {
+        if (tile.isActive) {
+          tile.isActive = false;
+          tile.hasTriggeredDamage = false;
+          tile.sprite.gotoAndStop(0);
+        }
+        continue;
+      }
+
       const phase = (runtime.waveTimeMs + tile.waveOffsetMs) % WAVE_PERIOD_MS;
       const isWaveActive = phase < WAVE_ACTIVE_MS;
 
@@ -1226,6 +1558,10 @@ function markWaveSpearChunkNearExit(
   runtime: TilemapAnimRuntime,
   exitTileX: number,
   exitTileY: number,
+  difficultyMultiplier: number,
+  dungeonTiles: number[][],
+  dungeonWidth: number,
+  dungeonHeight: number,
 ) {
   const spearTiles = runtime.interactive.filter((tile) => tile.kind === 'spear');
   if (spearTiles.length < 2) return;
@@ -1298,11 +1634,49 @@ function markWaveSpearChunkNearExit(
     }
   }
 
+  const difficulty = Math.max(1, difficultyMultiplier);
+  const difficultyT = Math.min(1, (difficulty - 1) / 2);
+  const testModeWaveOffsetFactor = TEMP_EASY_GA_TEST_MODE ? 3.4 : 1;
+  const perTileOffsetMs = Math.round((190 - 80 * difficultyT) * testModeWaveOffsetFactor);
+
+  const minX = Math.min(...selected.map((t) => t.tileX));
   const maxX = Math.max(...selected.map((t) => t.tileX));
   for (const tile of selected) {
     tile.isWaveTrap = true;
-    tile.waveOffsetMs = (maxX - tile.tileX) * 120;
+    tile.waveOffsetMs = (maxX - tile.tileX) * perTileOffsetMs;
     tile.sprite.gotoAndStop(0);
+  }
+
+  // Place a one-time switch on the far side so the player can safely backtrack.
+  const avgY = selected.reduce((sum, t) => sum + t.tileY, 0) / selected.length;
+  const uniqueYs = [...new Set(selected.map((t) => t.tileY))];
+  uniqueYs.sort((a, b) => Math.abs(a - avgY) - Math.abs(b - avgY));
+
+  const isWalkable = (x: number, y: number) => {
+    if (x < 0 || y < 0 || x >= dungeonWidth || y >= dungeonHeight) return false;
+    return dungeonTiles[y]?.[x] !== TileType.WALL;
+  };
+
+  let switchTileX = -1;
+  let switchTileY = -1;
+  const candidateXs = [maxX + 1, minX - 1];
+
+  for (const candidateX of candidateXs) {
+    for (const y of uniqueYs) {
+      if (!isWalkable(candidateX, y)) continue;
+      switchTileX = candidateX;
+      switchTileY = y;
+      break;
+    }
+    if (switchTileX >= 0) break;
+  }
+
+  if (switchTileX >= 0 && switchTileY >= 0) {
+    runtime.waveBarrierSwitch = {
+      tileX: switchTileX,
+      tileY: switchTileY,
+      isActivated: false,
+    };
   }
 }
 
@@ -1310,7 +1684,11 @@ function markWaveSpearChunkNearExit(
 // MARKERS
 // ══════════════════════════════════════════════════════════════════════
 
-function renderMarkers(container: Container, dungeon: Awaited<ReturnType<typeof generateDungeon>>) {
+function renderMarkers(
+  container: Container,
+  dungeon: Awaited<ReturnType<typeof generateDungeon>>,
+  waveBarrierSwitch: WaveBarrierSwitch | null,
+) {
   const exit = new Graphics();
   exit.circle(dungeon.exitPoint.x * TILE_SIZE + 16, dungeon.exitPoint.y * TILE_SIZE + 16, 14);
   exit.fill({ color: 0x22ff66, alpha: 0.25 });
@@ -1342,6 +1720,28 @@ function renderMarkers(container: Container, dungeon: Awaited<ReturnType<typeof 
   lbl.y = dungeon.spawnPoint.y * TILE_SIZE - 30;
   lbl.zIndex = 20;
   container.addChild(lbl);
+
+  if (waveBarrierSwitch) {
+    const sx = waveBarrierSwitch.tileX * TILE_SIZE + TILE_SIZE / 2;
+    const sy = waveBarrierSwitch.tileY * TILE_SIZE + TILE_SIZE / 2;
+
+    const switchMarker = new Graphics();
+    switchMarker.circle(sx, sy, 12);
+    switchMarker.fill({ color: 0x1cc9ff, alpha: 0.25 });
+    switchMarker.circle(sx, sy, 7);
+    switchMarker.fill({ color: 0x1cc9ff, alpha: 0.65 });
+    switchMarker.zIndex = 6;
+    container.addChild(switchMarker);
+
+    const switchLabel = new Text({
+      text: 'OFF',
+      style: new TextStyle({ fontFamily: 'Press Start 2P', fontSize: 6, fill: 0x1cc9ff }),
+    });
+    switchLabel.x = sx - 10;
+    switchLabel.y = sy - 20;
+    switchLabel.zIndex = 20;
+    container.addChild(switchLabel);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════

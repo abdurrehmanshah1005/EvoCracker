@@ -16,6 +16,9 @@ export function AIAnalyticsPanel() {
     population,
     generationHistory,
     playerProfile,
+    playerRuns,
+    currentDifficulty,
+    iteration,
   } = useGameStore();
 
   return (
@@ -51,7 +54,15 @@ export function AIAnalyticsPanel() {
         {analyticsTab === 1 && <GenomeInspectorTab population={population} />}
         {analyticsTab === 2 && <EvolutionDashboardTab history={generationHistory} generation={generation} />}
         {analyticsTab === 3 && <PlayerProfileTab profile={playerProfile} />}
-        {analyticsTab === 4 && <PerformanceTab fps={fps} enemyCount={enemyAnalytics.length} />}
+        {analyticsTab === 4 && (
+          <PerformanceTab
+            fps={fps}
+            enemyCount={enemyAnalytics.length}
+            currentDifficulty={currentDifficulty}
+            runsStored={playerRuns.length}
+            iteration={iteration}
+          />
+        )}
       </div>
     </div>
   );
@@ -312,7 +323,19 @@ function PlayerProfileTab({ profile }: { profile: PlayerProfile | null }) {
 }
 
 // --- Tab: Performance ---
-function PerformanceTab({ fps, enemyCount }: { fps: number; enemyCount: number }) {
+function PerformanceTab({
+  fps,
+  enemyCount,
+  currentDifficulty,
+  runsStored,
+  iteration,
+}: {
+  fps: number;
+  enemyCount: number;
+  currentDifficulty: number;
+  runsStored: number;
+  iteration: number;
+}) {
   return (
     <div className="analytics-section">
       <div className="analytics-section-title">Performance Metrics</div>
@@ -327,6 +350,18 @@ function PerformanceTab({ fps, enemyCount }: { fps: number; enemyCount: number }
       <div className="analytics-stat">
         <span className="analytics-stat-label">Active Enemies</span>
         <span className="analytics-stat-value">{enemyCount}</span>
+      </div>
+      <div className="analytics-stat">
+        <span className="analytics-stat-label">Iteration</span>
+        <span className="analytics-stat-value">{iteration}</span>
+      </div>
+      <div className="analytics-stat">
+        <span className="analytics-stat-label">Adaptive Difficulty</span>
+        <span className="analytics-stat-value">x{currentDifficulty.toFixed(2)}</span>
+      </div>
+      <div className="analytics-stat">
+        <span className="analytics-stat-label">Stored Strategy Runs</span>
+        <span className="analytics-stat-value">{runsStored}</span>
       </div>
       <div className="analytics-stat">
         <span className="analytics-stat-label">Renderer</span>

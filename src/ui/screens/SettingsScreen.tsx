@@ -2,7 +2,21 @@ import { useGameStore } from '@store/gameStore';
 
 export function SettingsScreen() {
   const setScreen = useGameStore((s) => s.setScreen);
-  const { showFOV, showGrid, showPaths, toggleShowFOV, toggleShowGrid, toggleShowPaths, debugMode, toggleDebug } = useGameStore();
+  const {
+    showFOV,
+    showGrid,
+    showPaths,
+    toggleShowFOV,
+    toggleShowGrid,
+    toggleShowPaths,
+    debugMode,
+    toggleDebug,
+    resetLearning,
+    generation,
+    iteration,
+    currentDifficulty,
+    playerRuns,
+  } = useGameStore();
 
   return (
     <div style={{
@@ -13,6 +27,9 @@ export function SettingsScreen() {
       alignItems: 'center',
       background: 'var(--bg-void)',
       paddingTop: '64px',
+      paddingBottom: '24px',
+      overflowY: 'auto',
+      overflowX: 'hidden',
     }}>
       <div className="settings-panel">
         <h1 className="fantasy-font gold-text glow-gold" style={{ fontSize: '2rem', marginBottom: '32px', textAlign: 'center' }}>
@@ -49,6 +66,26 @@ export function SettingsScreen() {
           <div className="settings-group-title">Genetic Algorithm</div>
 
           <div className="settings-row">
+            <span className="settings-label">Current Iteration</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{iteration}</span>
+          </div>
+
+          <div className="settings-row">
+            <span className="settings-label">Current Generation</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{generation}</span>
+          </div>
+
+          <div className="settings-row">
+            <span className="settings-label">Adaptive Difficulty</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>x{currentDifficulty.toFixed(2)}</span>
+          </div>
+
+          <div className="settings-row">
+            <span className="settings-label">Stored Player Runs</span>
+            <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{playerRuns.length}</span>
+          </div>
+
+          <div className="settings-row">
             <span className="settings-label">Population Size</span>
             <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>20</span>
           </div>
@@ -62,6 +99,20 @@ export function SettingsScreen() {
             <span className="settings-label">Elitism Rate</span>
             <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>10%</span>
           </div>
+        </div>
+
+        <div className="settings-group">
+          <div className="settings-group-title">Learning Controls</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '10px' }}>
+            Reset player path history, strategy profile, learned enemy population, and adaptive difficulty.
+          </div>
+          <button
+            className="btn"
+            onClick={resetLearning}
+            style={{ width: '100%', borderColor: 'var(--red)', color: 'var(--red)' }}
+          >
+            Reset AI Learning
+          </button>
         </div>
 
         {/* Info */}

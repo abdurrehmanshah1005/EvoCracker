@@ -9,7 +9,7 @@ export function PlayerHUD({ items = [] }: PlayerHUDProps) {
   const {
     playerHealth, playerMaxHealth, playerScore,
     currentFloor, currentBiome, fps,
-    analyticsEnabled, generation, population,
+    analyticsEnabled, generation, population, currentDifficulty, iteration,
   } = useGameStore();
 
   const healthPercent = (playerHealth / playerMaxHealth) * 100;
@@ -56,6 +56,11 @@ export function PlayerHUD({ items = [] }: PlayerHUDProps) {
         <div className="hud-info">
           Gen <span className="value">{generation}</span> &nbsp;
           Pop <span className="value">{population.length}</span>
+        </div>
+
+        <div className="hud-info">
+          Iter <span className="value">{iteration}</span> &nbsp;
+          Diff <span className="value" style={{ color: 'var(--orange)' }}>x{currentDifficulty.toFixed(2)}</span>
         </div>
 
         <div className="hud-info" style={{ opacity: 0.5, fontSize: '0.55rem' }}>

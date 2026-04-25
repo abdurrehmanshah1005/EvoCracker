@@ -945,9 +945,11 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   position: relative;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: var(--space-lg) var(--space-md);
 }
 
 .character-select-content {
@@ -958,6 +960,9 @@ body {
   align-items: center;
   gap: var(--space-lg);
   animation: fadeInUp var(--duration-slow) var(--ease-out);
+  width: 100%;
+  max-width: 760px;
+  margin: auto;
 }
 
 .character-select-title {
@@ -1100,6 +1105,64 @@ body {
 
 .character-select-actions .btn {
   min-width: 180px;
+}
+
+@media (max-height: 900px) {
+  .character-select-content {
+    gap: var(--space-md);
+  }
+
+  .character-select-title {
+    font-size: 2rem;
+  }
+
+  .character-grid {
+    gap: var(--space-sm);
+    max-width: 520px;
+  }
+
+  .character-card {
+    padding: var(--space-sm);
+  }
+
+  .character-preview {
+    width: 56px;
+    height: 56px;
+  }
+
+  .character-select-actions {
+    margin-top: var(--space-sm);
+  }
+}
+
+@media (max-height: 760px) {
+  .character-select-screen {
+    padding-top: var(--space-md);
+    padding-bottom: var(--space-md);
+  }
+
+  .character-select-title {
+    font-size: 1.8rem;
+  }
+
+  .character-select-subtitle {
+    margin-top: 0;
+    font-size: 0.5rem;
+    letter-spacing: 2px;
+    text-align: center;
+  }
+
+  .character-grid {
+    gap: 10px;
+  }
+
+  .character-desc {
+    display: none;
+  }
+
+  .character-select-actions .btn {
+    min-width: 160px;
+  }
 }
 
 /* --- Map Selection Screen --- */

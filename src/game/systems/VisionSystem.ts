@@ -79,39 +79,40 @@ export function updateVision(
       enemy.performance.timePlayerVisible += dt;
       enemy.blackboard.lastKnownPlayerX = playerTileX;
       enemy.blackboard.lastKnownPlayerY = playerTileY;
+      enemy.blackboard.alertTimer = 5 + enemy.genome.persistence * 8;
 
-      // Escalate alert state based on aggression + distance
-      if (enemy.alertState === AlertState.IDLE || enemy.alertState === AlertState.SUSPICIOUS) {
-        const alertThreshold = dist < 2 ? 0 : 0.3 + enemy.genome.aggression * 0.5;
-        if (Math.random() < alertThreshold || dist < 2) {
-          const wasIdle = enemy.alertState === AlertState.IDLE;
-          enemy.alertState = AlertState.CHASING;
-          if (wasIdle) {
-            enemy.performance.playerDetections++;
-            bus.emit(GameEvents.ENEMY_ALERT_CHANGE, {
-              enemyId: enemy.id,
-              newState: AlertState.CHASING,
-            });
-          }
-        } else {
-          enemy.alertState = AlertState.SUSPICIOUS;
+      // Deterministic escalation makes enemies react consistently when player is seen.
+      if (enemy.alertState !== AlertState.CHASING) {
+        const wasIdle = enemy.alertState === AlertState.IDLE || enemy.alertState === AlertState.SUSPICIOUS;
+        enemy.alertState = AlertState.CHASING;
+        if (wasIdle) {
+          enemy.performance.playerDetections++;
+          bus.emit(GameEvents.ENEMY_ALERT_CHANGE, {
+            enemyId: enemy.id,
+            newState: AlertState.CHASING,
+          });
         }
       }
     } else {
       // Lost sight
       if (wasVisible && enemy.alertState === AlertState.CHASING) {
         enemy.alertState = AlertState.ALERT; // Continue searching briefly
-        enemy.blackboard.alertTimer = 4 + enemy.genome.persistence * 6; // Search duration
+        enemy.blackboard.alertTimer = 5 + enemy.genome.persistence * 8; // Search duration
       }
 
       // Cool down alert timer
       if (enemy.blackboard.alertTimer > 0) {
         enemy.blackboard.alertTimer -= dt;
+        if (enemy.alertState !== AlertState.FLEEING && enemy.alertState !== AlertState.ALERT) {
+          enemy.alertState = AlertState.ALERT;
+        }
         if (enemy.blackboard.alertTimer <= 0 && enemy.alertState !== AlertState.FLEEING) {
           enemy.alertState = AlertState.IDLE;
           enemy.blackboard.lastKnownPlayerX = -1;
           enemy.blackboard.lastKnownPlayerY = -1;
         }
+      } else if (enemy.alertState !== AlertState.FLEEING) {
+        enemy.alertState = AlertState.IDLE;
       }
     }
   }
