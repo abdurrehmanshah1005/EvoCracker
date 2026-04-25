@@ -44,9 +44,9 @@ npm run dev
 | **Phase 2** | ✅ Complete | AI algorithms — All 8 search algos + BT engine |
 | **Phase 3** | ✅ Complete | Genetic evolution — Genome, GA, player profiler |
 | **Phase 4** | ✅ Complete | Analytics overlay — 5-tab real-time AI dashboard |
-| **Phase 5** | 🔲 Pending | Game content — enemies, items, modes, combat |
-| **Phase 6** | 🔲 Pending | Visual polish — sprite sheets, animations, effects |
-| **Phase 7** | 🔲 Pending | Supabase backend — genomes, leaderboard, auth |
+| **Phase 5** | ✅ Complete | Game content — enemies, items, modes, combat |
+| **Phase 6** | ✅ Complete | Visual polish — sprite sheets, animations, effects |
+| **Phase 7** | ✅ Complete | Supabase backend — genomes, leaderboard, auth |
 | **Phase 8** | 🔲 Optional | Neural net stretch goal — Q-Learning, TF.js heuristic |
 
 ---

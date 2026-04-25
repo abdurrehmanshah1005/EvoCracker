@@ -10,6 +10,7 @@ import { InputManager } from '@core/InputManager';
 import { Camera } from '@core/Camera';
 import { Grid } from '@ai/pathfinding/Grid';
 import { PathfindingClient } from '@ai/worker/PathfindingClient';
+import { SupabaseService } from '@services/SupabaseService';
 import { generateDungeon, getBiomeForFloor, type TiledLayerData } from '@game/world/DungeonGenerator';
 import { TILE_SIZE, TileType, GRID_COLS, GRID_ROWS, ALGORITHM_COLORS, AlertState, EnemyType } from '@utils/constants';
 import { AIAnalyticsPanel } from '@ui/analytics/AIAnalyticsPanel';
@@ -225,6 +226,10 @@ export function GameScreen() {
       startTs: performance.now(),
     };
 
+    // Initialize player profile in Supabase
+    const username = useGameStore.getState().username;
+    SupabaseService.initializePlayer(username);
+
     // ── Clean up any previous instance (React StrictMode fix) ────
     if (appRef.current) {
       try { appRef.current.destroy(true); } catch { /* already destroyed */ }
@@ -301,9 +306,7 @@ export function GameScreen() {
 
       // ── Generate dungeon ──────────────────────────────────────────
       const biome = getBiomeForFloor(currentFloor);
-      console.error("DEBUG: Start generateDungeon");
       const dungeon = await generateDungeon(GRID_COLS, GRID_ROWS, currentFloor, biome, selectedMap);
-      console.error("DEBUG: Finish generateDungeon");
       if (signal.aborted) return;
 
       storeActionsRef.current.setDungeonData(dungeon);
@@ -320,7 +323,6 @@ export function GameScreen() {
       PathfindingClient.getInstance().setGrid(grid.serialize());
 
       // ── Render tilemap ────────────────────────────────────────────
-      console.error("DEBUG: Rendering tilemap");
       const tilemapAnimRuntime = renderTilemap(
         worldContainer,
         dungeon.tiles,
@@ -329,9 +331,7 @@ export function GameScreen() {
         dungeon.tiledLayers,
         dungeon.tiledFirstGid,
       );
-      console.error("DEBUG: markWaveSpearChunkNearExit");
       markWaveSpearChunkNearExit(tilemapAnimRuntime, dungeon.exitPoint.x, dungeon.exitPoint.y, currentDifficulty);
-      console.error("DEBUG: renderMarkers");
       renderMarkers(worldContainer, dungeon);
 
       // ── Player ────────────────────────────────────────────────────
@@ -527,6 +527,30 @@ export function GameScreen() {
           stats,
           nextDifficulty,
         });
+
+        // --- Supabase Integration ---
+        // 1. Update leaderboard
+        SupabaseService.updateLeaderboard(useGameStore.getState().playerScore, currentFloor);
+
+        // 2. Log evolution run
+        SupabaseService.logEvolutionRun({
+          floor: currentFloor,
+          generation: stats.generation,
+          avgFitness: stats.avgFitness,
+          maxFitness: stats.maxFitness,
+          minFitness: stats.minFitness,
+          diversity: stats.diversityIndex,
+          dominantAlgo: stats.dominantAlgorithm,
+          popSize: newPopulation.length,
+          playstyle: profile.playstyle,
+          geneAverages: stats.avgGenes
+        });
+
+        // 3. Save elite genomes (if fitness > 90)
+        const elite = newPopulation.sort((a, b) => (b.fitness || 0) - (a.fitness || 0))[0];
+        if (elite && (elite.fitness || 0) > 90) {
+          SupabaseService.saveEliteGenome(elite, 'Elite', elite.fitness || 0, currentFloor);
+        }
       };
 
       // ── Events ────────────────────────────────────────────────────

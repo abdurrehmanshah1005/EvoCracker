@@ -20,6 +20,7 @@
   "dependencies": {
     "@pixi/react": "^8.0.5",
     "@pixi/tilemap": "^5.0.2",
+    "@supabase/supabase-js": "^2.104.1",
     "@vitejs/plugin-react": "^6.0.1",
     "howler": "^2.2.4",
     "pixi.js": "^8.18.1",

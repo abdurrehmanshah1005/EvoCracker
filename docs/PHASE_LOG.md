@@ -131,91 +131,39 @@ Anyone picking this up from GitHub should read this first.
 
 ---
 
-## 🔲 Phase 5 — Game Content & Modes
-**Status:** NOT STARTED  
-**Who should do this:** Developer
+## ✅ Phase 5 — Game Content & Modes
+**Status:** COMPLETE  
+**Date:** April 2026
 
-### What needs to be done
-
-#### 5.1 Enemy Archetypes
-Create `src/game/entities/enemies/EnemyBase.ts` — base class that:
-- Holds `AIComponent`, `BehaviorTree`, `Blackboard`, `Genome`
-- On each frame: ticks BT → request path via AlgorithmRegistry → move along path
-- Tracks performance metrics for fitness evaluation
-
-Create 8 enemy files inheriting from EnemyBase:
-- `Slime.ts` — BFS, splits on death
-- `Bat.ts` — DFS, can fly over 1-wide walls
-- `Inquisitor.ts` — IDS, marks rooms
-- `LeashedGuard.ts` — DLS with depth = patrol radius
-- `RoyalKnight.ts` — UCS, ignores terrain penalties
-- `Assassin.ts` — A*, has dash ability
-- `Goblin.ts` — Greedy BFS, rage mode
-- `Archer.ts` — Hill Climbing, ranged attack
-
-#### 5.2 Combat System
-Create `src/game/systems/CombatSystem.ts`
-- Player takes damage on enemy contact
-- Items affect enemy AI (Logic Shroud +10 tile weight, etc.)
-
-#### 5.3 Vision System
-Create `src/game/systems/VisionSystem.ts`
-- Raycasting-based FOV for each enemy
-- Updates `VisionComponent.detectedEntities`
-- Triggers alert state changes → updates Blackboard
-
-#### 5.4 Items
-Create `src/game/entities/items/` with:
-- `LogicShroud.ts` — Increases player tile weight for A*/UCS
-- `HeuristicJammer.ts` — Switches enemy to DFS
-- `SmokeBomb.ts` — Blinds nearby enemies
-- `GhostCloak.ts` — Player invisible
-- `TrapKit.ts` — Place bear trap
-- `MutationSerum.ts` — Randomizes enemy genome
-- `AlgorithmCodex.ts` — Reveals all enemy algos
-
-#### 5.5 Trial Mode
-- Wire up floor progression in `src/game/modes/TrialMode.ts`
-- After floor complete: run `evolvePopulation()` → show evolution screen → generate new floor
+### What was done
+- **Enemy Archetypes** (`src/game/entities/enemies/Archetypes.ts`) — Implemented all 8 archetypes (Slime, Bat, etc.) with custom AI behaviors.
+- **Combat System** — Integrated health, damage, and death logic.
+- **Vision System** (`src/game/systems/VisionSystem.ts`) — Raycasting-based FOV and alert states.
+- **Items** (`src/game/entities/items/ItemSystem.ts`) — Fully functional items (Smoke Bomb, Ghost Cloak, etc.) that affect AI logic.
+- **Trial Mode** — Floor progression, difficulty scaling, and between-floor evolution.
 
 ---
 
-## 🔲 Phase 6 — Visual Polish & Assets
-**Status:** NOT STARTED
+## ✅ Phase 6 — Visual Polish & Assets
+**Status:** COMPLETE  
+**Date:** April 2026
 
-### Asset sources
-- Free CC0 tilesets: https://itch.io/game-assets/free/tag-dungeon/tag-tileset
-- Generated enemy sprites: Use AI image generation for each archetype
-- Sprite format: PNG spritesheets (16x16 or 32x32), organized as walking/idle/attack/death rows
-
-### Sprite sheet layout convention
-```
-Row 0: Idle    (4 frames)
-Row 1: Walk    (8 frames)
-Row 2: Attack  (6 frames)
-Row 3: Death   (8 frames)
-```
-
-### Integration
-- Load with `Assets.load()` + `Spritesheet` in `src/core/AssetLoader.ts`
-- Replace `Graphics` placeholders in `GameScreen.tsx` with `AnimatedSprite`
-- Animation controlled by `SpriteComponent.animationState`
+### What was done
+- **Asset Integration** — Loaded and integrated the 2D Pixel Dungeon Asset Pack.
+- **Animated Sprites** — Replaced all Graphics placeholders with high-quality animated sprites for player and all enemies.
+- **Feedback Effects** — Added exclamation mark alerts and "startle" jumps when enemies detect the player.
 
 ---
 
-## 🔲 Phase 7 — Supabase Backend
-**Status:** NOT STARTED
+## ✅ Phase 7 — Supabase Backend
+**Status:** COMPLETE  
+**Date:** April 2026
 
-### Setup
-1. Create free project at https://supabase.com
-2. Run SQL from `docs/SUPABASE_SCHEMA.sql`
-3. Copy `.env.example` to `.env` and fill in keys
-
-### Features to implement
-- Auth (anonymous or email)
-- Save/load elite genomes
-- Global leaderboard with Supabase Realtime
-- Export evolution data for academic analysis
+### What was done
+- **Supabase Integration** — Installed `@supabase/supabase-js` and configured the client.
+- **Leaderboard** — Global leaderboard with real-time updates for high scores and floor reached.
+- **Evolution Logging** — Every generation's stats and elite genomes are automatically logged for research analysis.
+- **Auth/Profile** — Anonymous player profiling to track progress across sessions.
 
 ---
 

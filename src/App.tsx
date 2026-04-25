@@ -5,6 +5,7 @@ import { AlgorithmLabScreen } from '@ui/screens/AlgorithmLabScreen';
 import { SettingsScreen } from '@ui/screens/SettingsScreen';
 import { CharacterSelectScreen } from '@ui/screens/CharacterSelectScreen';
 import { MapSelectScreen } from '@ui/screens/MapSelectScreen';
+import { LeaderboardScreen } from '@ui/screens/LeaderboardScreen';
 
 function App() {
   const currentScreen = useGameStore((s) => s.currentScreen);
@@ -23,6 +24,8 @@ function App() {
         return <AlgorithmLabScreen />;
       case 'settings':
         return <SettingsScreen />;
+      case 'leaderboard':
+        return <LeaderboardScreen />;
       default:
         return <MainMenu />;
     }

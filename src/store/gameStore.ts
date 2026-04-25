@@ -149,6 +149,12 @@ interface GameState {
 
   // Reset
   resetGame: () => void;
+
+  // Profile
+  username: string;
+  setUsername: (name: string) => void;
+  playerPlaystyle: string;
+  setPlayerPlaystyle: (style: string) => void;
 }
 
 export const useGameStore = create<GameState>()(
@@ -268,6 +274,12 @@ export const useGameStore = create<GameState>()(
           currentScreen: 'mainMenu',
           selectedMap: 'crypt',
         }),
+
+      // Profile
+      username: 'Anonymous',
+      setUsername: (name) => set({ username: name }),
+      playerPlaystyle: 'unknown',
+      setPlayerPlaystyle: (style) => set({ playerPlaystyle: style }),
     }),
     {
       name: 'evocracker-learning-store',

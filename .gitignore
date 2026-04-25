@@ -25,3 +25,13 @@ dist-ssr
 
 # Raw asset packs (large source files)
 2D Pixel Dungeon Asset Pack v2.0/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+dist-ssr/
+

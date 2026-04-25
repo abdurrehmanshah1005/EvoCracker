@@ -72,6 +72,13 @@ export function MainMenu() {
           >
             ⚙️ Settings
           </button>
+
+          <button
+            className="btn btn-pixel"
+            onClick={() => handleMenuClick('leaderboard')}
+          >
+            🏆 Leaderboard
+          </button>
         </div>
 
         {/* Version */}
