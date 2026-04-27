@@ -155,6 +155,12 @@ interface GameState {
   setUsername: (name: string) => void;
   playerPlaystyle: string;
   setPlayerPlaystyle: (style: string) => void;
+
+  // Audio
+  musicEnabled: boolean;
+  toggleMusic: () => void;
+  currentTrack: number;
+  setTrack: (track: number) => void;
 }
 
 export const useGameStore = create<GameState>()(
@@ -280,6 +286,12 @@ export const useGameStore = create<GameState>()(
       setUsername: (name) => set({ username: name }),
       playerPlaystyle: 'unknown',
       setPlayerPlaystyle: (style) => set({ playerPlaystyle: style }),
+
+      // Audio
+      musicEnabled: true,
+      toggleMusic: () => set((s) => ({ musicEnabled: !s.musicEnabled })),
+      currentTrack: 1,
+      setTrack: (track) => set({ currentTrack: track }),
     }),
     {
       name: 'evocracker-learning-store',
@@ -292,6 +304,8 @@ export const useGameStore = create<GameState>()(
         baseDifficulty: state.baseDifficulty,
         currentDifficulty: state.currentDifficulty,
         playerRuns: state.playerRuns,
+        musicEnabled: state.musicEnabled,
+        currentTrack: state.currentTrack,
       }),
     }
   )

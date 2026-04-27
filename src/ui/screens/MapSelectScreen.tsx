@@ -12,7 +12,7 @@ const AVAILABLE_MAPS: MapInfo[] = [
     id: 'crypt',
     name: 'Crypt of Shadows',
     description: 'A dark underground crypt with winding corridors, treasure vaults, and deadly traps. Hand-crafted layout with strategic enemy placement.',
-    thumbnail: '/assets/maps/floor1_layout.png',
+    thumbnail: '/assets/cryptofshadows.png',
     layoutPath: '/assets/maps/floor1_layout.png',
     isProcedural: false,
   },

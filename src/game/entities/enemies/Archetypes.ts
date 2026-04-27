@@ -17,7 +17,7 @@ export class Slime extends EnemyBase {
   private splitOnDeath = true;
 
   constructor(tileX: number, tileY: number, genome?: Genome) {
-    super(EnemyType.SLIME, tileX, tileY, genome);
+    super(EnemyType.TOAD, tileX, tileY, genome);
     this.speed *= 0.7;       // Slow
     this.visionRange *= 0.8; // Short vision but wide BFS search
   }
@@ -62,7 +62,7 @@ export class Slime extends EnemyBase {
       // Emit split event — SpawnSystem listens
       import('@core/EventBus').then(({ EventBus, GameEvents }) => {
         EventBus.getInstance().emit(GameEvents.ENEMY_DEATH, {
-          type: EnemyType.SLIME,
+          type: EnemyType.TOAD,
           tileX: this.tileX,
           tileY: this.tileY,
           split: true,
@@ -79,7 +79,7 @@ export class Bat extends EnemyBase {
   private flyCharges = 2;
 
   constructor(tileX: number, tileY: number, genome?: Genome) {
-    super(EnemyType.BAT, tileX, tileY, genome);
+    super(EnemyType.GHOST, tileX, tileY, genome);
     this.speed *= 1.4;       // Fast
     this.attackDamage *= 0.7; // Weak
   }
@@ -111,7 +111,7 @@ export class Inquisitor extends EnemyBase {
   private currentDepthLimit = 3;
 
   constructor(tileX: number, tileY: number, genome?: Genome) {
-    super(EnemyType.INQUISITOR, tileX, tileY, genome);
+    super(EnemyType.HEROINE, tileX, tileY, genome);
     this.speed *= 0.85;
     this.visionRange *= 1.2;
     this.attackDamage *= 1.5; // Strong melee
@@ -150,7 +150,7 @@ export class LeashedGuard extends EnemyBase {
   public leashRadius: number;
 
   constructor(tileX: number, tileY: number, genome?: Genome) {
-    super(EnemyType.LEASHED_GUARD, tileX, tileY, genome);
+    super(EnemyType.OGRE, tileX, tileY, genome);
     this.leashRadius = 5 + Math.round(genome?.persistence ?? 0.5) * 5; // 5–10 tiles
     this.attackDamage *= 1.2;
     this.maxHealth = Math.round(this.maxHealth * 1.5);
@@ -192,7 +192,7 @@ export class LeashedGuard extends EnemyBase {
 // ── 5. ROYAL KNIGHT — UCS weighted terrain ───────────────────────────
 export class RoyalKnight extends EnemyBase {
   constructor(tileX: number, tileY: number, genome?: Genome) {
-    super(EnemyType.ROYAL_KNIGHT, tileX, tileY, genome);
+    super(EnemyType.TERRIBLE_KNIGHT, tileX, tileY, genome);
     this.maxHealth = Math.round(this.maxHealth * 2);
     this.health = this.maxHealth;
     this.attackDamage *= 1.8;
@@ -235,7 +235,7 @@ export class Assassin extends EnemyBase {
   private dashCharges = 3;
 
   constructor(tileX: number, tileY: number, genome?: Genome) {
-    super(EnemyType.ASSASSIN, tileX, tileY, genome);
+    super(EnemyType.WEREWOLF, tileX, tileY, genome);
     this.speed *= 1.3;
     this.maxHealth = Math.round(this.maxHealth * 0.7); // Fragile
     this.health = this.maxHealth;
@@ -303,7 +303,7 @@ export class Goblin extends EnemyBase {
   private rageTimer = 0;
 
   constructor(tileX: number, tileY: number, genome?: Genome) {
-    super(EnemyType.GOBLIN, tileX, tileY, genome);
+    super(EnemyType.FROGGY, tileX, tileY, genome);
     this.speed *= 1.2;
     this.maxHealth = Math.round(this.maxHealth * 0.6);
     this.health = this.maxHealth;
@@ -361,7 +361,7 @@ export class Archer extends EnemyBase {
   private inPosition = false;
 
   constructor(tileX: number, tileY: number, genome?: Genome) {
-    super(EnemyType.ARCHER, tileX, tileY, genome);
+    super(EnemyType.DEMON, tileX, tileY, genome);
     this.speed *= 0.7;
     this.attackDamage *= 0.8; // Lower per-hit, but ranged
   }
@@ -408,14 +408,14 @@ export function createEnemy(
   genome?: Genome
 ): EnemyBase {
   switch (type) {
-    case EnemyType.SLIME:        return new Slime(tileX, tileY, genome);
-    case EnemyType.BAT:          return new Bat(tileX, tileY, genome);
-    case EnemyType.INQUISITOR:   return new Inquisitor(tileX, tileY, genome);
-    case EnemyType.LEASHED_GUARD:return new LeashedGuard(tileX, tileY, genome);
-    case EnemyType.ROYAL_KNIGHT: return new RoyalKnight(tileX, tileY, genome);
-    case EnemyType.ASSASSIN:     return new Assassin(tileX, tileY, genome);
-    case EnemyType.GOBLIN:       return new Goblin(tileX, tileY, genome);
-    case EnemyType.ARCHER:       return new Archer(tileX, tileY, genome);
+    case EnemyType.TOAD:         return new Slime(tileX, tileY, genome);
+    case EnemyType.GHOST:        return new Bat(tileX, tileY, genome);
+    case EnemyType.HEROINE:      return new Inquisitor(tileX, tileY, genome);
+    case EnemyType.OGRE:         return new LeashedGuard(tileX, tileY, genome);
+    case EnemyType.TERRIBLE_KNIGHT: return new RoyalKnight(tileX, tileY, genome);
+    case EnemyType.WEREWOLF:     return new Assassin(tileX, tileY, genome);
+    case EnemyType.FROGGY:       return new Goblin(tileX, tileY, genome);
+    case EnemyType.DEMON:        return new Archer(tileX, tileY, genome);
     default:                     return new Slime(tileX, tileY, genome);
   }
 }
@@ -424,14 +424,14 @@ export function createEnemy(
 export function getEnemyTypesForFloor(floor: number): EnemyType[] {
   const allTypes = Object.values(EnemyType);
   const unlockFloor: Record<string, number> = {
-    [EnemyType.SLIME]: 1,
-    [EnemyType.BAT]: 1,
-    [EnemyType.GOBLIN]: 2,
-    [EnemyType.INQUISITOR]: 3,
-    [EnemyType.LEASHED_GUARD]: 3,
-    [EnemyType.ARCHER]: 4,
-    [EnemyType.ROYAL_KNIGHT]: 5,
-    [EnemyType.ASSASSIN]: 6,
+    [EnemyType.TOAD]: 1,
+    [EnemyType.GHOST]: 1,
+    [EnemyType.FROGGY]: 2,
+    [EnemyType.HEROINE]: 3,
+    [EnemyType.OGRE]: 3,
+    [EnemyType.DEMON]: 4,
+    [EnemyType.TERRIBLE_KNIGHT]: 5,
+    [EnemyType.WEREWOLF]: 6,
   };
   return allTypes.filter((t) => (unlockFloor[t] ?? 1) <= floor);
 }

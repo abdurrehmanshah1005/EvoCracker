@@ -127,6 +127,7 @@ export function GameScreen() {
   const [intelligenceRun, setIntelligenceRun] = useState(1);
   const isLoadedRef = useRef(false);
   const [notification, setNotification] = useState<string | null>(null);
+  const [isDead, setIsDead] = useState(false);
   const notifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Player state ref
@@ -209,6 +210,7 @@ export function GameScreen() {
     trapdoorReturnPendingRef.current = false;
     trapdoorReturnTimerRef.current = 0;
     allSpawnedEnemiesRef.current = [];
+    setIsDead(false);
     playerVelocityRef.current = { x: 0, y: 0 };
     prevPlayerTileRef.current = { x: 0, y: 0 };
     runStartTimeRef.current = performance.now();
@@ -267,9 +269,9 @@ export function GameScreen() {
       canvasRef.current.style.outline = 'none';
       canvasRef.current.focus();
 
-      const camera = new Camera({ 
-        viewportWidth: window.innerWidth, 
-        viewportHeight: window.innerHeight, 
+      const camera = new Camera({
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
         zoom: 1.0,
         deadzoneWidth: 0,
         deadzoneHeight: 0
@@ -612,9 +614,16 @@ export function GameScreen() {
             p.health = 0;
             storeActionsRef.current.setPlayerHealth(0);
             playerDeadRef.current = true;
-            showNotification('💀 You died! Game Over');
+            setIsDead(true);
+            // Replace with grave sprite
+            import('pixi.js').then(({ Sprite, Texture }) => {
+              p.sprite?.container.removeChildren();
+              const graveSprite = new Sprite(Texture.from('/assets/grave.png'));
+              graveSprite.anchor.set(0.5);
+              p.sprite?.container.addChild(graveSprite);
+            });
             trapdoorReturnPendingRef.current = true;
-            trapdoorReturnTimerRef.current = 1.5;
+            trapdoorReturnTimerRef.current = 3.5;
           }
           input.endFrame();
           return;
@@ -796,7 +805,7 @@ export function GameScreen() {
                 const predictionScale = 2 + intelligenceRunRef.current;
                 const predictedX = p.tileX + Math.round(playerVelocityRef.current.x * predictionScale);
                 const predictedY = p.tileY + Math.round(playerVelocityRef.current.y * predictionScale);
-                
+
                 const pNode = grid.getNode(predictedX, predictedY);
                 if (pNode && pNode.walkable) {
                   targetX = Math.max(1, Math.min(dungeon.width - 2, predictedX));
@@ -861,8 +870,15 @@ export function GameScreen() {
               if (p.health <= 0) {
                 finalizeLearning('died');
                 playerDeadRef.current = true;
-                showNotification('💀 You died! Game Over');
-                setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 2000);
+                setIsDead(true);
+                // Replace with grave sprite
+                import('pixi.js').then(({ Sprite, Texture }) => {
+                  p.sprite?.container.removeChildren();
+                  const graveSprite = new Sprite(Texture.from('/assets/grave.png'));
+                  graveSprite.anchor.set(0.5);
+                  p.sprite?.container.addChild(graveSprite);
+                });
+                setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 3500);
               }
             }
           }
@@ -918,8 +934,15 @@ export function GameScreen() {
           if (p.health <= 0 && !playerDeadRef.current) {
             finalizeLearning('died');
             playerDeadRef.current = true;
-            showNotification('💀 You died! Game Over');
-            setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 2000);
+            setIsDead(true);
+            // Replace with grave sprite
+            import('pixi.js').then(({ Sprite, Texture }) => {
+              p.sprite?.container.removeChildren();
+              const graveSprite = new Sprite(Texture.from('/assets/grave.png'));
+              graveSprite.anchor.set(0.5);
+              p.sprite?.container.addChild(graveSprite);
+            });
+            setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 3500);
           }
         });
 
@@ -1046,6 +1069,23 @@ export function GameScreen() {
           >
             ← Main Menu
           </button>
+        </div>
+      )}
+
+      {/* Death Overlay */}
+      {isDead && (
+        <div style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.85)',
+          display: 'flex', flexDirection: 'column',
+          alignItems: 'center', justifyContent: 'center',
+          zIndex: 200,
+          animation: 'fadeIn 2s ease-out forwards'
+        }}>
+          <img src="/assets/You Died.png" alt="You Died" style={{ maxWidth: '80%', maxHeight: '50%' }} />
+          <div style={{ color: '#ff4444', marginTop: '30px', fontFamily: 'var(--font-pixel)' }}>
+            Stand proud... you were strong.
+          </div>
         </div>
       )}
 

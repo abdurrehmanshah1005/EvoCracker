@@ -16,6 +16,10 @@ export function SettingsScreen() {
     iteration,
     currentDifficulty,
     playerRuns,
+    musicEnabled,
+    toggleMusic,
+    currentTrack,
+    setTrack,
   } = useGameStore();
 
   return (
@@ -35,6 +39,42 @@ export function SettingsScreen() {
         <h1 className="fantasy-font gold-text glow-gold" style={{ fontSize: '2rem', marginBottom: '32px', textAlign: 'center' }}>
           ⚙️ Settings
         </h1>
+
+        {/* Audio Settings */}
+        <div className="settings-group">
+          <div className="settings-group-title">Audio Settings</div>
+          
+          <div className="settings-row">
+            <span className="settings-label">Music Toggle</span>
+            <button 
+              className={`btn ${musicEnabled ? 'btn-primary' : ''}`}
+              style={{ padding: '8px 16px', fontSize: '0.8rem', fontFamily: 'var(--font-pixel)' }}
+              onClick={toggleMusic}
+            >
+              {musicEnabled ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
+          <div className="settings-row" style={{ flexDirection: 'column', alignItems: 'flex-start' }}>
+            <span className="settings-label" style={{ marginBottom: '16px' }}>Track Selection</span>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              {[1, 2, 3, 4, 5].map((track) => (
+                <button
+                  key={track}
+                  onClick={() => setTrack(track)}
+                  className={`btn ${currentTrack === track ? 'btn-primary' : ''}`}
+                  style={{
+                    padding: '10px 14px',
+                    fontSize: '0.8rem',
+                    fontFamily: 'var(--font-pixel)'
+                  }}
+                >
+                  Track {track}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
 
         {/* AI Debug Settings */}
         <div className="settings-group">

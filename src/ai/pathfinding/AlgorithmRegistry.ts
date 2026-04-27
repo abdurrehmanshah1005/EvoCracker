@@ -80,7 +80,7 @@ export function getAlgorithmInfo(type: AlgorithmType): {
   const info: Record<AlgorithmType, ReturnType<typeof getAlgorithmInfo>> = {
     [AlgorithmType.BFS]: {
       name: 'Breadth-First Search',
-      enemy: 'Slime',
+      enemy: 'Mutant Toad',
       category: 'uninformed',
       description: 'Explores all nodes at current depth before moving deeper. Guarantees shortest path on unweighted graphs.',
       timeComplexity: 'O(V + E)',
@@ -90,7 +90,7 @@ export function getAlgorithmInfo(type: AlgorithmType): {
     },
     [AlgorithmType.DFS]: {
       name: 'Depth-First Search',
-      enemy: 'Bat',
+      enemy: 'Ghost',
       category: 'uninformed',
       description: 'Explores as deep as possible before backtracking. Memory efficient but may not find shortest path.',
       timeComplexity: 'O(V + E)',
@@ -100,7 +100,7 @@ export function getAlgorithmInfo(type: AlgorithmType): {
     },
     [AlgorithmType.IDS]: {
       name: 'Iterative Deepening Search',
-      enemy: 'Inquisitor',
+      enemy: 'Bridge Heroine',
       category: 'uninformed',
       description: 'Combines BFS optimality with DFS space efficiency by running DFS with increasing depth limits.',
       timeComplexity: 'O(b^d)',
@@ -110,7 +110,7 @@ export function getAlgorithmInfo(type: AlgorithmType): {
     },
     [AlgorithmType.DLS]: {
       name: 'Depth-Limited Search',
-      enemy: 'Leashed Guard',
+      enemy: 'Ogre',
       category: 'uninformed',
       description: 'DFS with a maximum depth. The guard stays within patrol radius of its post.',
       timeComplexity: 'O(b^ℓ)',
@@ -120,7 +120,7 @@ export function getAlgorithmInfo(type: AlgorithmType): {
     },
     [AlgorithmType.UCS]: {
       name: 'Uniform Cost Search',
-      enemy: 'Royal Knight',
+      enemy: 'Terrible Knight',
       category: 'uninformed',
       description: 'Expands lowest-cost node first. Optimal on weighted graphs — respects terrain costs.',
       timeComplexity: 'O(V log V)',
@@ -130,7 +130,7 @@ export function getAlgorithmInfo(type: AlgorithmType): {
     },
     [AlgorithmType.ASTAR]: {
       name: 'A* Search',
-      enemy: 'Assassin',
+      enemy: 'WereWolf',
       category: 'informed',
       description: 'Uses heuristic to guide search toward goal. Optimal with admissible heuristic, faster than UCS.',
       timeComplexity: 'O(E log V)',
@@ -140,7 +140,7 @@ export function getAlgorithmInfo(type: AlgorithmType): {
     },
     [AlgorithmType.GREEDY_BFS]: {
       name: 'Greedy Best-First Search',
-      enemy: 'Enraged Goblin',
+      enemy: 'Sunny Froggy',
       category: 'informed',
       description: 'Expands node closest to goal (by heuristic). Fast but not optimal — charges straight at target.',
       timeComplexity: 'O(b^m)',
@@ -150,7 +150,7 @@ export function getAlgorithmInfo(type: AlgorithmType): {
     },
     [AlgorithmType.HILL_CLIMBING]: {
       name: 'Hill Climbing',
-      enemy: 'Archer',
+      enemy: 'Demon',
       category: 'optimization',
       description: 'Greedy local search that moves to best neighbor. Seeks optimal vantage point for ranged attacks.',
       timeComplexity: 'O(neighbors)',

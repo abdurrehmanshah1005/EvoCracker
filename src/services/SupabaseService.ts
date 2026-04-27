@@ -56,7 +56,29 @@ export const SupabaseService = {
     const playerId = localStorage.getItem('evocracker_player_id');
     const username = useGameStore.getState().username || 'Anonymous';
     
-    if (!playerId) return;
+    // Local storage fallback since Supabase is unconfigured
+    const localBoardStr = localStorage.getItem('evocracker_leaderboard');
+    let board: any[] = localBoardStr ? JSON.parse(localBoardStr) : [];
+    
+    const existing = board.find(s => s.player_id === playerId);
+    if (existing) {
+      existing.total_score = Math.max(existing.total_score, score);
+      existing.best_floor = Math.max(existing.best_floor, floor);
+      existing.updated_at = new Date().toISOString();
+      existing.username = username;
+    } else {
+      board.push({
+        player_id: playerId || Math.random().toString(),
+        username,
+        total_score: score,
+        best_floor: floor,
+        updated_at: new Date().toISOString()
+      });
+    }
+    board.sort((a, b) => b.total_score - a.total_score);
+    localStorage.setItem('evocracker_leaderboard', JSON.stringify(board));
+
+    if (!playerId || !import.meta.env.VITE_SUPABASE_URL) return;
 
     // Using the RPC function defined in the schema
     const { error } = await supabase.rpc('update_leaderboard', {
@@ -99,6 +121,14 @@ export const SupabaseService = {
    * Fetch the top scores for the leaderboard.
    */
   async getLeaderboard(limit = 10) {
+    // Return local storage data as a fallback
+    const localBoardStr = localStorage.getItem('evocracker_leaderboard');
+    const localBoard: any[] = localBoardStr ? JSON.parse(localBoardStr) : [];
+
+    if (!import.meta.env.VITE_SUPABASE_URL) {
+      return localBoard.slice(0, limit);
+    }
+
     const { data, error } = await supabase
       .from('leaderboard')
       .select('*')
@@ -107,7 +137,7 @@ export const SupabaseService = {
 
     if (error) {
       console.error('Error fetching leaderboard:', error);
-      return [];
+      return localBoard.slice(0, limit);
     }
     
     return data;

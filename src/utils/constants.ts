@@ -84,26 +84,26 @@ export const ALGORITHM_COLORS: Record<AlgorithmType, number> = {
 
 // Enemy Types
 export enum EnemyType {
-  SLIME = 'Slime',
-  BAT = 'Bat',
-  INQUISITOR = 'Inquisitor',
-  LEASHED_GUARD = 'LeashedGuard',
-  ROYAL_KNIGHT = 'RoyalKnight',
-  ASSASSIN = 'Assassin',
-  GOBLIN = 'Goblin',
-  ARCHER = 'Archer',
+  TOAD = 'Mutant Toad',
+  GHOST = 'Ghost',
+  HEROINE = 'Bridge Heroine',
+  OGRE = 'Ogre',
+  TERRIBLE_KNIGHT = 'Terrible Knight',
+  WEREWOLF = 'WereWolf',
+  FROGGY = 'Sunny Froggy',
+  DEMON = 'Demon',
 }
 
 // Enemy ➜ Default Algorithm mapping
 export const ENEMY_DEFAULT_ALGORITHM: Record<EnemyType, AlgorithmType> = {
-  [EnemyType.SLIME]: AlgorithmType.BFS,
-  [EnemyType.BAT]: AlgorithmType.DFS,
-  [EnemyType.INQUISITOR]: AlgorithmType.IDS,
-  [EnemyType.LEASHED_GUARD]: AlgorithmType.DLS,
-  [EnemyType.ROYAL_KNIGHT]: AlgorithmType.UCS,
-  [EnemyType.ASSASSIN]: AlgorithmType.ASTAR,
-  [EnemyType.GOBLIN]: AlgorithmType.GREEDY_BFS,
-  [EnemyType.ARCHER]: AlgorithmType.HILL_CLIMBING,
+  [EnemyType.TOAD]: AlgorithmType.BFS,
+  [EnemyType.GHOST]: AlgorithmType.DFS,
+  [EnemyType.HEROINE]: AlgorithmType.IDS,
+  [EnemyType.OGRE]: AlgorithmType.DLS,
+  [EnemyType.TERRIBLE_KNIGHT]: AlgorithmType.UCS,
+  [EnemyType.WEREWOLF]: AlgorithmType.ASTAR,
+  [EnemyType.FROGGY]: AlgorithmType.GREEDY_BFS,
+  [EnemyType.DEMON]: AlgorithmType.HILL_CLIMBING,
 };
 
 // Behavior Tree node status

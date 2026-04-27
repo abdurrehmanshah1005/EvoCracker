@@ -80,6 +80,7 @@ export interface CharacterDef {
   separateSheets?: SeparateSheets;    // optional separate sprite sheets per animation
   flipDefault?: boolean;  // true if sprite faces left by default (invert flip logic)
   customScale?: number;   // optional multiplier for base scaling
+  icon?: string;          // custom thumbnail icon path
 }
 
 // The sprite sheets are roughly 1024x1024 with 8 columns × 3-5 rows.
@@ -96,6 +97,7 @@ export const CHARACTER_DEFS: CharacterDef[] = [
     color: '#44ddee',
     description: 'Spectral haunter',
     glowColor: 0x44ddee,
+    icon: '/assets/characters/Ghost-Files/Sprites/Idle/frame5.png',
     flipDefault: true,  // ghost sprites face left by default
     separateSheets: {
       idle:    { path: '/assets/characters/Ghost-Files/Spritesheets/ghost-Idle.png',    cols: 7, frameW: 64, frameH: 80 },
@@ -115,6 +117,7 @@ export const CHARACTER_DEFS: CharacterDef[] = [
     color: '#ff6688',
     description: 'Swift blade dancer',
     glowColor: 0xff6688,
+    icon: '/heroine.png',
     customScale: 1.5,
     separateSheets: {
       idle:    { path: '/assets/characters/Bridge Heroine/Heroine base/Spritesheets/idle.png',   cols: 4, frameW: 128, frameH: 64 },
@@ -151,6 +154,7 @@ export const CHARACTER_DEFS: CharacterDef[] = [
     color: '#dd4466',
     description: 'Fallen dark knight',
     glowColor: 0xdd4466,
+    icon: '/knight.png',
     customScale: 1.5,
     separateSheets: {
       idle:    { path: '/assets/characters/Terrible Knight/Spritesheets/player-Idle.png',         cols: 4, frameW: 128, frameH: 96 },
@@ -219,9 +223,10 @@ export const CHARACTER_DEFS: CharacterDef[] = [
     frameW: 144, frameH: 64,
     cols: 6, rows: 1,
     idleRow: 0, walkRow: 0, attackRow: 0,
-    color: '#cc4422',
-    description: 'Ancient fire wyrm',
-    glowColor: 0xcc4422,
+    color: '#ee4422',
+    description: 'Ancient fire drake',
+    glowColor: 0xee4422,
+    icon: '/icondragon.png',
     flipDefault: true,
     separateSheets: {
       idle:    { path: '/assets/characters/Grotto-escape-2-boss-dragon/spritesheets/idle.png',   cols: 6, frameW: 144, frameH: 64 },
@@ -240,6 +245,7 @@ export const CHARACTER_DEFS: CharacterDef[] = [
     color: '#33aa55',
     description: 'Slithering beast',
     glowColor: 0x33aa55,
+    icon: '/iconlizzard.png',
     separateSheets: {
       idle:    { path: '/assets/characters/Grotto-escape-2-lizzard/spritesheets/idle.png',   cols: 4, frameW: 64, frameH: 32 },
       walk:    { path: '/assets/characters/Grotto-escape-2-lizzard/spritesheets/walk.png',   cols: 6, frameW: 64, frameH: 32 },
@@ -322,14 +328,14 @@ const CHAR_FRAME_SIZE = 16;
 
 // Enemy type → monster/priest sprite mapping
 const ENEMY_SPRITE_MAP: Record<EnemyType, { folder: string; prefix: string }> = {
-  [EnemyType.SLIME]:         { folder: 'monsters/skull',      prefix: 'skull_v1' },
-  [EnemyType.BAT]:           { folder: 'priests/priest3',     prefix: 'priest3_v1' },
-  [EnemyType.GOBLIN]:        { folder: 'monsters/skeleton1',  prefix: 'skeleton_v1' },
-  [EnemyType.ARCHER]:        { folder: 'monsters/skeleton2',  prefix: 'skeleton_v2' },
-  [EnemyType.INQUISITOR]:    { folder: 'priests/priest1',     prefix: 'priest1_v1' },
-  [EnemyType.LEASHED_GUARD]: { folder: 'priests/priest2',     prefix: 'priest2_v1' },
-  [EnemyType.ROYAL_KNIGHT]:  { folder: 'monsters/vampire',    prefix: 'vampire_v1' },
-  [EnemyType.ASSASSIN]:      { folder: 'monsters/skeleton2',  prefix: 'skeleton_v2' },
+  [EnemyType.TOAD]:          { folder: 'monsters/skull',      prefix: 'skull_v1' },
+  [EnemyType.GHOST]:         { folder: 'priests/priest3',     prefix: 'priest3_v1' },
+  [EnemyType.FROGGY]:        { folder: 'monsters/skeleton1',  prefix: 'skeleton_v1' },
+  [EnemyType.DEMON]:         { folder: 'monsters/skeleton2',  prefix: 'skeleton_v2' },
+  [EnemyType.HEROINE]:       { folder: 'priests/priest1',     prefix: 'priest1_v1' },
+  [EnemyType.OGRE]:          { folder: 'priests/priest2',     prefix: 'priest2_v1' },
+  [EnemyType.TERRIBLE_KNIGHT]:{ folder: 'monsters/vampire',    prefix: 'vampire_v1' },
+  [EnemyType.WEREWOLF]:      { folder: 'monsters/skeleton2',  prefix: 'skeleton_v2' },
 };
 
 /**
@@ -777,13 +783,13 @@ export function createCharacterEnemySprite(characterIndex: number): GameSprite {
   }
 
   // Fallback placeholder
-  return createEnemySprite(EnemyType.GOBLIN);
+  return createEnemySprite(EnemyType.FROGGY);
 }
 
 // ── Enemy Sprite (original system, kept as fallback) ─────────────────
 
 const ENEMY_SHAPES: Record<string, (g: Graphics, color: number) => void> = {
-  [EnemyType.SLIME]: (g, c) => {
+  [EnemyType.TOAD]: (g, c) => {
     g.ellipse(0, 4, TILE_SIZE * 0.35, TILE_SIZE * 0.25);
     g.fill({ color: c });
     g.circle(0, 0, TILE_SIZE * 0.28);
@@ -792,7 +798,7 @@ const ENEMY_SHAPES: Record<string, (g: Graphics, color: number) => void> = {
     g.circle(5, -2, 3);
     g.fill({ color: 0x000000 });
   },
-  [EnemyType.BAT]: (g, c) => {
+  [EnemyType.GHOST]: (g, c) => {
     g.ellipse(-12, -4, 10, 6);
     g.ellipse(12, -4, 10, 6);
     g.fill({ color: c });
@@ -801,7 +807,7 @@ const ENEMY_SHAPES: Record<string, (g: Graphics, color: number) => void> = {
     g.poly([-3, 4, 3, 4, 0, 8]);
     g.fill({ color: c });
   },
-  [EnemyType.INQUISITOR]: (g, c) => {
+  [EnemyType.HEROINE]: (g, c) => {
     g.rect(-8, -6, 16, 20);
     g.fill({ color: c });
     g.circle(0, -10, 8);
@@ -810,7 +816,7 @@ const ENEMY_SHAPES: Record<string, (g: Graphics, color: number) => void> = {
     g.circle(3, -10, 2);
     g.fill({ color: 0xff4444 });
   },
-  [EnemyType.LEASHED_GUARD]: (g, c) => {
+  [EnemyType.OGRE]: (g, c) => {
     g.rect(-9, -10, 18, 22);
     g.fill({ color: c });
     g.rect(-7, -6, 8, 12);
@@ -818,7 +824,7 @@ const ENEMY_SHAPES: Record<string, (g: Graphics, color: number) => void> = {
     g.rect(-7, -12, 14, 8);
     g.fill({ color: c, alpha: 0.8 });
   },
-  [EnemyType.ROYAL_KNIGHT]: (g, c) => {
+  [EnemyType.TERRIBLE_KNIGHT]: (g, c) => {
     g.rect(-10, -12, 20, 26);
     g.fill({ color: c });
     g.poly([-10, -8, -16, 12, -8, 12]);
@@ -826,7 +832,7 @@ const ENEMY_SHAPES: Record<string, (g: Graphics, color: number) => void> = {
     g.rect(-7, -10, 14, 6);
     g.fill({ color: 0x000000, alpha: 0.6 });
   },
-  [EnemyType.ASSASSIN]: (g, c) => {
+  [EnemyType.WEREWOLF]: (g, c) => {
     g.poly([0, -14, 8, -6, 6, 12, -6, 12, -8, -6]);
     g.fill({ color: c });
     g.rect(-5, -10, 10, 6);
@@ -835,7 +841,7 @@ const ENEMY_SHAPES: Record<string, (g: Graphics, color: number) => void> = {
     g.rect(1, -8, 3, 2);
     g.fill({ color: 0xff2222 });
   },
-  [EnemyType.GOBLIN]: (g, c) => {
+  [EnemyType.FROGGY]: (g, c) => {
     g.circle(0, 2, TILE_SIZE * 0.28);
     g.fill({ color: c });
     g.circle(0, -6, TILE_SIZE * 0.22);

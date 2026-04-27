@@ -49,9 +49,20 @@ export function CharacterSelectScreen() {
                 '--char-color': charDef.color,
               } as React.CSSProperties}
             >
-              {/* Preview using the character sprite sheet */}
+              {/* Preview using the character sprite sheet or custom icon */}
               <div className="character-preview">
-                {(() => {
+                {charDef.icon ? (
+                  <img
+                    src={charDef.icon}
+                    alt={charDef.name}
+                    style={{
+                      width: '64px',
+                      height: '64px',
+                      objectFit: 'contain',
+                      imageRendering: 'pixelated',
+                    }}
+                  />
+                ) : (() => {
                   const fW = charDef.frameW || 64;
                   const fH = charDef.frameH || 64;
                   const displaySize = 64;
