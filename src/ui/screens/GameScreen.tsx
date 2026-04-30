@@ -1020,6 +1020,24 @@ export function GameScreen() {
         worldContainer.x = -camera.x * camera.config.zoom;
         worldContainer.y = -camera.y * camera.config.zoom;
 
+        // ── CULLING ────────────────────────────────────────────────
+        if (tilemapAnimRuntime.chunks) {
+          const padding = 32;
+          const viewLeft = camera.x - padding;
+          const viewTop = camera.y - padding;
+          const viewRight = camera.x + (camera.config.viewportWidth / camera.config.zoom) + padding;
+          const viewBottom = camera.y + (camera.config.viewportHeight / camera.config.zoom) + padding;
+
+          for (const chunk of tilemapAnimRuntime.chunks) {
+            chunk.container.visible = !(
+              chunk.bounds.right < viewLeft ||
+              chunk.bounds.left > viewRight ||
+              chunk.bounds.bottom < viewTop ||
+              chunk.bounds.top > viewBottom
+            );
+          }
+        }
+
         const worldMouse = camera.screenToWorld(input.getState().mouse.x, input.getState().mouse.y);
         input.setWorldMouse(worldMouse.x, worldMouse.y);
 

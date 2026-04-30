@@ -46,6 +46,7 @@ export interface TilemapAnimRuntime {
   nonWaveActiveGroupId: number;
   nonWaveGroupHoldMs: number;
   nonWaveGroupDamaged: boolean;
+  chunks?: { container: Container; bounds: { left: number; right: number; top: number; bottom: number } }[];
 }
 
 
@@ -68,6 +69,7 @@ export function renderTilemap(
     nonWaveActiveGroupId: -1,
     nonWaveGroupHoldMs: 0,
     nonWaveGroupDamaged: false,
+    chunks: [],
   };
 
   const tileContainer = new Container();
@@ -77,10 +79,36 @@ export function renderTilemap(
   // ── Tiled JSON map mode: render each layer using GID-based textures ──
   if (tiledLayers && tiledLayers.length > 0 && isTiledTilesetLoaded()) {
     const firstGid = tiledFirstGid ?? 1;
+    const CHUNK_SIZE_TILES = 16;
+    const CHUNK_PIXELS = CHUNK_SIZE_TILES * TILE_SIZE;
 
     for (const layer of tiledLayers) {
       const layerContainer = new Container();
       layerContainer.label = layer.name;
+
+      const numChunksX = Math.ceil(layer.width / CHUNK_SIZE_TILES);
+      const numChunksY = Math.ceil(layer.height / CHUNK_SIZE_TILES);
+      const chunks: Container[][] = [];
+
+      for (let cy = 0; cy < numChunksY; cy++) {
+        chunks[cy] = [];
+        for (let cx = 0; cx < numChunksX; cx++) {
+          const chunk = new Container();
+          chunk.label = `chunk_${layer.name}_${cx}_${cy}`;
+          chunks[cy][cx] = chunk;
+          layerContainer.addChild(chunk);
+          
+          runtime.chunks!.push({
+            container: chunk,
+            bounds: {
+              left: cx * CHUNK_PIXELS,
+              right: (cx + 1) * CHUNK_PIXELS,
+              top: cy * CHUNK_PIXELS,
+              bottom: (cy + 1) * CHUNK_PIXELS
+            }
+          });
+        }
+      }
 
       for (let y = 0; y < layer.height; y++) {
         for (let x = 0; x < layer.width; x++) {
@@ -90,6 +118,9 @@ export function renderTilemap(
 
           const px = x * TILE_SIZE;
           const py = y * TILE_SIZE;
+          const cx = Math.floor(x / CHUNK_SIZE_TILES);
+          const cy = Math.floor(y / CHUNK_SIZE_TILES);
+          const targetChunk = chunks[cy][cx];
 
           // Check for Tiled animation on this tile
           const animFrames = getTiledTileAnimation(rawGid);
@@ -186,7 +217,7 @@ export function renderTilemap(
               animSprite.gotoAndPlay(0);
             }
 
-            layerContainer.addChild(animSprite);
+            targetChunk.addChild(animSprite);
           } else {
             const tex = getTiledTileTexture(rawGid, firstGid);
             if (tex) {
@@ -197,7 +228,7 @@ export function renderTilemap(
               sprite.width = TILE_SIZE;
               sprite.height = TILE_SIZE;
               applyTiledFlipFlags(sprite, rawGid);
-              layerContainer.addChild(sprite);
+              targetChunk.addChild(sprite);
             }
           }
         }
