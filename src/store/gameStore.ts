@@ -91,6 +91,7 @@ interface GameState {
   // Game state
   isPaused: boolean;
   togglePause: () => void;
+  setPaused: (paused: boolean) => void;
   isPlaying: boolean;
   setPlaying: (playing: boolean) => void;
 
@@ -181,6 +182,7 @@ export const useGameStore = create<GameState>()(
       // Game state
       isPaused: false,
       togglePause: () => set((s) => ({ isPaused: !s.isPaused })),
+      setPaused: (paused) => set({ isPaused: paused }),
       isPlaying: false,
       setPlaying: (playing) => set({ isPlaying: playing }),
 

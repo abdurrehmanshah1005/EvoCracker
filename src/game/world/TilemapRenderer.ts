@@ -1,21 +1,18 @@
 import { Container, Graphics, Text, TextStyle, Sprite, AnimatedSprite } from 'pixi.js';
 import { TILE_SIZE, TileType, ALGORITHM_COLORS, AlertState } from '@utils/constants';
 import { generateDungeon, type TiledLayerData } from '@game/world/DungeonGenerator';
-import { getTileTexture, getWallTexture, getTiledTileTexture, isTiledTilesetLoaded, getTiledTileAnimation, stripTiledFlipFlags, isTilesetLoaded } from '@core/DungeonTilesetLoader';
+import { getTileTexture, getWallTexture, getTiledTileTexture, isTiledTilesetLoaded, getTiledTileAnimation, stripTiledFlipFlags, isTilesetLoaded, isChestTileGid, isSpearTrapTileGid, isWoodenTrapdoorTileGid, isGateTileGid } from '@core/DungeonTilesetLoader';
 import type { EnemyBase } from '@game/entities/enemies/EnemyBase';
 
 const TEMP_EASY_GA_TEST_MODE = false;
 const TILE_COLORS: Record<number, number> = { [TileType.FLOOR_STONE]: 0x3a3a52, [TileType.WALL]: 0x111118, [TileType.FLOOR_MUD]: 0x5a4420, [TileType.FLOOR_WATER]: 0x1a4070, [TileType.FLOOR_TRAP]: 0x6a1818, [TileType.DOOR]: 0x6a5a30, [TileType.STAIRS_DOWN]: 0x20aa50, [TileType.STAIRS_UP]: 0x3050aa, [TileType.TREASURE]: 0xaa8820, [TileType.FLOOR_GRASS]: 0x2a5a2a, [TileType.FLOOR_SAND]: 0x6a6a30, [TileType.BRIDGE]: 0x5a3a1a };
 const WALL_TOP = 0x1a1a28;
 const FLOOR_GRID_LINE = 0x2a2a40;
-const CHEST_ANIM_GIDS = new Set<number>([626, 642]);
-const SPEAR_TRAP_ANIM_GIDS = new Set<number>([255]);
-const WOODEN_TRAPDOOR_ANIM_GIDS = new Set<number>([208, 209, 233, 234]);
 const FLIPPED_HORIZONTALLY_FLAG = 0x80000000;
 const FLIPPED_VERTICALLY_FLAG = 0x40000000;
 const FLIPPED_DIAGONALLY_FLAG = 0x20000000;
 
-export type InteractiveAnimKind = 'chest' | 'spear';
+export type InteractiveAnimKind = 'chest' | 'spear' | 'gate';
 
 export interface InteractiveTileAnim {
   key: string;
@@ -24,6 +21,8 @@ export interface InteractiveTileAnim {
   kind: InteractiveAnimKind;
   sprite: AnimatedSprite;
   isActive: boolean;
+  isGateOpen: boolean;
+  targetOpen: boolean;
   hasBeenOpened: boolean;
   hasTriggeredDamage: boolean;
   isWaveTrap: boolean;
@@ -104,13 +103,13 @@ export function renderTilemap(
             animSprite.height = TILE_SIZE;
             applyTiledFlipFlags(animSprite, rawGid);
 
-            if (WOODEN_TRAPDOOR_ANIM_GIDS.has(cleanGid)) {
+            if (isWoodenTrapdoorTileGid(cleanGid)) {
               // Slow down wooden trapdoor animation.
               animSprite.animationSpeed = 0.6;
             }
 
             const key = `${x},${y}`;
-            if (CHEST_ANIM_GIDS.has(cleanGid)) {
+            if (isChestTileGid(cleanGid)) {
               // Chest: play opening once, then stay open while player remains nearby.
               animSprite.loop = false;
               animSprite.gotoAndStop(0);
@@ -121,6 +120,8 @@ export function renderTilemap(
                 kind: 'chest',
                 sprite: animSprite,
                 isActive: false,
+                isGateOpen: false,
+                targetOpen: false,
                 hasBeenOpened: false,
                 hasTriggeredDamage: false,
                 isWaveTrap: false,
@@ -128,7 +129,7 @@ export function renderTilemap(
                 spearGroupId: -1,
                 holdMs: 0,
               });
-            } else if (SPEAR_TRAP_ANIM_GIDS.has(cleanGid)) {
+            } else if (isSpearTrapTileGid(cleanGid)) {
               // Spear trap: play once after trigger; reset when player leaves tile.
               animSprite.loop = false;
               animSprite.gotoAndStop(0);
@@ -139,6 +140,8 @@ export function renderTilemap(
                 kind: 'spear',
                 sprite: animSprite,
                 isActive: false,
+                isGateOpen: false,
+                targetOpen: false,
                 hasBeenOpened: false,
                 hasTriggeredDamage: false,
                 isWaveTrap: false,
@@ -146,7 +149,27 @@ export function renderTilemap(
                 spearGroupId: -1,
                 holdMs: 0,
               });
-            } else if (WOODEN_TRAPDOOR_ANIM_GIDS.has(cleanGid)) {
+            } else if (isGateTileGid(cleanGid)) {
+              // Gates play when the player comes close, then reset when they leave.
+              animSprite.loop = false;
+              animSprite.gotoAndStop(0);
+              runtime.interactive.push({
+                key,
+                tileX: x,
+                tileY: y,
+                kind: 'gate',
+                sprite: animSprite,
+                isActive: false,
+                isGateOpen: false,
+                targetOpen: false,
+                hasBeenOpened: false,
+                hasTriggeredDamage: false,
+                isWaveTrap: false,
+                waveOffsetMs: 0,
+                spearGroupId: -1,
+                holdMs: 0,
+              });
+            } else if (isWoodenTrapdoorTileGid(cleanGid)) {
               // Trapdoor stays closed until the player attacks while standing on it.
               animSprite.loop = false;
               animSprite.gotoAndStop(0);
@@ -318,31 +341,71 @@ export function applyTiledFlipFlags(sprite: Sprite | AnimatedSprite, rawGid: num
   sprite.rotation = rot;
 }
 
+function getGateOpenFrame(sprite: AnimatedSprite): number {
+  return Math.max(0, Math.floor((sprite.totalFrames - 1) / 2));
+}
+
+function triggerGateOpen(tile: InteractiveTileAnim) {
+  if (tile.kind !== 'gate' || tile.isActive || tile.isGateOpen) return;
+
+  const openFrame = getGateOpenFrame(tile.sprite);
+  tile.isActive = true;
+  tile.sprite.loop = false;
+  tile.sprite.gotoAndPlay(0);
+  tile.sprite.onFrameChange = (currentFrame) => {
+    if (currentFrame >= openFrame) {
+      tile.sprite.gotoAndStop(openFrame);
+      tile.sprite.onFrameChange = undefined;
+      tile.isActive = false;
+      tile.isGateOpen = true;
+
+      if (!tile.targetOpen) {
+        triggerGateClose(tile);
+      }
+    }
+  };
+}
+
+function triggerGateClose(tile: InteractiveTileAnim) {
+  if (tile.kind !== 'gate' || tile.isActive || !tile.isGateOpen) return;
+
+  const openFrame = getGateOpenFrame(tile.sprite);
+  const lastFrame = Math.max(0, tile.sprite.totalFrames - 1);
+  const closeStartFrame = Math.min(lastFrame, openFrame + 1);
+
+  tile.isActive = true;
+  tile.sprite.loop = false;
+  tile.sprite.gotoAndPlay(closeStartFrame);
+  tile.sprite.onFrameChange = (currentFrame) => {
+    if (currentFrame >= lastFrame) {
+      tile.sprite.gotoAndStop(lastFrame);
+      tile.sprite.onFrameChange = undefined;
+      tile.isActive = false;
+      tile.isGateOpen = false;
+
+      if (tile.targetOpen) {
+        triggerGateOpen(tile);
+      }
+    }
+  };
+}
+
 export function updateInteractiveTileAnimations(
   runtime: TilemapAnimRuntime,
   playerTileX: number,
   playerTileY: number,
   dtSeconds: number,
-  difficultyMultiplier: number,
+  _difficultyMultiplier: number,
   onSpearTrapHit: (damage: number) => void,
 ) {
   if (runtime.interactive.length === 0) return;
 
   const dtMs = dtSeconds * 1000;
-  runtime.waveTimeMs += dtMs;
-
-  const difficulty = Math.max(1, difficultyMultiplier);
-  const difficultyT = Math.min(1, (difficulty - 1) / 2);
-  const testModeSlowFactor = TEMP_EASY_GA_TEST_MODE ? 3.1 : 1;
-
-  // Base difficulty should be forgiving; higher difficulty speeds traps up.
-  const NON_WAVE_TRIGGER_MS = Math.round((700 - 220 * difficultyT) * testModeSlowFactor);
-  const WAVE_PERIOD_MS = Math.round((1900 - 700 * difficultyT) * testModeSlowFactor);
-  const WAVE_ACTIVE_MS = Math.round((260 + 90 * difficultyT) * (TEMP_EASY_GA_TEST_MODE ? 0.7 : 1));
+  const NON_WAVE_TRIGGER_MS = 500;
+  const GATE_TRIGGER_RADIUS = 5;
 
   const standingOnNonWaveSpear = runtime.interactive.find((tile) => (
     tile.kind === 'spear' &&
-    !tile.isWaveTrap &&
     tile.tileX === playerTileX &&
     tile.tileY === playerTileY
   ));
@@ -387,8 +450,22 @@ export function updateInteractiveTileAnimations(
       continue;
     }
 
-    // Non-wave spear traps animate as a connected nearby group.
-    if (tile.spearGroupId >= 0 && !tile.isWaveTrap) {
+    if (tile.kind === 'gate') {
+      const dx = tile.tileX - playerTileX;
+      const dy = tile.tileY - playerTileY;
+      const near = Math.sqrt(dx * dx + dy * dy) <= GATE_TRIGGER_RADIUS;
+      tile.targetOpen = near;
+
+      if (near) {
+        triggerGateOpen(tile);
+      } else {
+        triggerGateClose(tile);
+      }
+      continue;
+    }
+
+    // Spear traps animate as a connected nearby group after the player lingers on them.
+    if (tile.spearGroupId >= 0) {
       const shouldBeActive =
         nonWavePrimed &&
         activeNonWaveGroupId >= 0 &&
@@ -406,28 +483,6 @@ export function updateInteractiveTileAnimations(
           tile.isActive = false;
           tile.sprite.gotoAndStop(0);
         }
-      }
-      continue;
-    }
-
-    // Spear trap
-    if (tile.isWaveTrap) {
-      const phase = (runtime.waveTimeMs + tile.waveOffsetMs) % WAVE_PERIOD_MS;
-      const isWaveActive = phase < WAVE_ACTIVE_MS;
-
-      if (isWaveActive && !tile.isActive) {
-        tile.isActive = true;
-        tile.sprite.gotoAndPlay(0);
-      } else if (!isWaveActive && tile.isActive) {
-        tile.isActive = false;
-        tile.hasTriggeredDamage = false;
-        tile.sprite.gotoAndStop(0);
-      }
-
-      const standingOnTrap = tile.tileX === playerTileX && tile.tileY === playerTileY;
-      if (isWaveActive && standingOnTrap && !tile.hasTriggeredDamage) {
-        tile.hasTriggeredDamage = true;
-        onSpearTrapHit(999);
       }
       continue;
     }
@@ -509,9 +564,9 @@ export function triggerTrapdoorCollapseGroup(runtime: TilemapAnimRuntime, seed: 
 
 export function markWaveSpearChunkNearExit(
   runtime: TilemapAnimRuntime,
-  exitTileX: number,
-  exitTileY: number,
-  difficultyMultiplier: number,
+  _exitTileX: number,
+  _exitTileY: number,
+  _difficultyMultiplier: number,
 ) {
   const spearTiles = runtime.interactive.filter((tile) => tile.kind === 'spear');
   if (spearTiles.length < 2) return;
@@ -559,41 +614,6 @@ export function markWaveSpearChunkNearExit(
     for (const tile of components[i]) {
       tile.spearGroupId = i;
     }
-  }
-
-  const candidates = components.filter((c) => c.length >= 3);
-  if (candidates.length === 0) return;
-
-  // Skip components touching the exit tile vicinity (e.g. the single spear near exit).
-  const safeCandidates = candidates.filter((c) => (
-    !c.some((t) => Math.abs(t.tileX - exitTileX) <= 1 && Math.abs(t.tileY - exitTileY) <= 1)
-  ));
-
-  const pool = safeCandidates.length > 0 ? safeCandidates : candidates;
-
-  // Prefer the most right-side spear group near the new right-side exit.
-  let selected = pool[0];
-  let selectedAvgX = pool[0].reduce((sum, t) => sum + t.tileX, 0) / pool[0].length;
-
-  for (let i = 1; i < pool.length; i++) {
-    const c = pool[i];
-    const avgX = c.reduce((sum, t) => sum + t.tileX, 0) / c.length;
-    if (avgX > selectedAvgX) {
-      selected = c;
-      selectedAvgX = avgX;
-    }
-  }
-
-  const difficulty = Math.max(1, difficultyMultiplier);
-  const difficultyT = Math.min(1, (difficulty - 1) / 2);
-  const testModeWaveOffsetFactor = TEMP_EASY_GA_TEST_MODE ? 3.4 : 1;
-  const perTileOffsetMs = Math.round((190 - 80 * difficultyT) * testModeWaveOffsetFactor);
-
-  const maxX = Math.max(...selected.map((t) => t.tileX));
-  for (const tile of selected) {
-    tile.isWaveTrap = true;
-    tile.waveOffsetMs = (maxX - tile.tileX) * perTileOffsetMs;
-    tile.sprite.gotoAndStop(0);
   }
 }
 
@@ -687,4 +707,3 @@ export function drawDebugOverlays(
     }
   }
 }
-

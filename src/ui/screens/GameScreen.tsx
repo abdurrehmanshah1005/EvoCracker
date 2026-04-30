@@ -45,6 +45,11 @@ const EASY_ENEMY_DAMAGE_SCALE = 0.45;
 const EASY_ENEMY_SPEED_SCALE = 0.75;
 const EASY_ENEMY_VISION_SCALE = 0.82;
 const EASY_ENEMY_HEALTH_SCALE = 0.62;
+const LARGE_MAP_ID = 'forest_ruins';
+const LARGE_MAP_CAMERA_ZOOM = 0.82;
+const LARGE_MAP_CHARACTER_SCALE = 1.08;
+const LARGE_MAP_PLAYER_SPEED_MULTIPLIER = 1.12;
+const LARGE_MAP_ENEMY_SPEED_MULTIPLIER = 1.08;
 
 // ===== TILE COLORS — High contrast ==========================
 const TILE_COLORS: Record<number, number> = {
@@ -173,12 +178,19 @@ export function GameScreen() {
     addScore: useGameStore.getState().addScore,
     setScreen: useGameStore.getState().setScreen,
     togglePause: useGameStore.getState().togglePause,
+    setPaused: useGameStore.getState().setPaused,
     nextFloor: useGameStore.getState().nextFloor,
     setPopulation: useGameStore.getState().setPopulation,
     setPlayerProfile: useGameStore.getState().setPlayerProfile,
     addGenerationStats: useGameStore.getState().addGenerationStats,
     completeIterationLearning: useGameStore.getState().completeIterationLearning,
   });
+
+  const returnToMainMenu = useCallback(() => {
+    isPausedRef.current = false;
+    storeActionsRef.current.setPaused(false);
+    storeActionsRef.current.setScreen('mainMenu');
+  }, []);
 
   // Use refs for values used in the game loop so they don't cause re-init
   const showPathsRef = useRef(useGameStore.getState().showPaths);
@@ -199,10 +211,12 @@ export function GameScreen() {
 
   const initGame = useCallback(async (signal: AbortSignal) => {
     if (!canvasRef.current) return;
+    const isLargeMap = selectedMap === LARGE_MAP_ID;
 
     // Reset death/pause state
     playerDeadRef.current = false;
     isPausedRef.current = false;
+    storeActionsRef.current.setPaused(false);
     floorClearedRef.current = false;
     floorAdvancePendingRef.current = false;
     trapdoorDeathPendingRef.current = false;
@@ -272,7 +286,7 @@ export function GameScreen() {
       const camera = new Camera({
         viewportWidth: window.innerWidth,
         viewportHeight: window.innerHeight,
-        zoom: 1.0,
+        zoom: isLargeMap ? LARGE_MAP_CAMERA_ZOOM : 1.0,
         deadzoneWidth: 0,
         deadzoneHeight: 0
       });
@@ -282,9 +296,6 @@ export function GameScreen() {
       input.init();
 
       // ── Load pixel-art assets ──────────────────────────────────────
-      await loadTileset();
-      if (signal.aborted) return;
-
       await initSpriteAssets();
       if (signal.aborted) return;
 
@@ -309,6 +320,9 @@ export function GameScreen() {
       // ── Generate dungeon ──────────────────────────────────────────
       const biome = getBiomeForFloor(currentFloor);
       const dungeon = await generateDungeon(GRID_COLS, GRID_ROWS, currentFloor, biome, selectedMap);
+      if (signal.aborted) return;
+
+      await loadTileset(dungeon.tiledTilesets ?? []);
       if (signal.aborted) return;
 
       storeActionsRef.current.setDungeonData(dungeon);
@@ -338,6 +352,9 @@ export function GameScreen() {
 
       // ── Player ────────────────────────────────────────────────────
       const playerSprite = createPlayerSprite(selectedCharacter);
+      if (isLargeMap) {
+        playerSprite.container.scale.set(LARGE_MAP_CHARACTER_SCALE);
+      }
       playerSprite.container.zIndex = 15;
       worldContainer.addChild(playerSprite.container);
 
@@ -425,9 +442,15 @@ export function GameScreen() {
         const enemy = createEnemy(type, pt.x, pt.y, genome);
         enemy.applyDifficulty(currentDifficulty);
         applyTempEasyTuning(enemy);
+        if (isLargeMap) {
+          enemy.speed *= LARGE_MAP_ENEMY_SPEED_MULTIPLIER;
+        }
         // Replace the enemy's sprite with a character sprite
         enemy.container.removeChildren();
         const charSprite = createCharacterEnemySprite(charIndex);
+        if (isLargeMap) {
+          charSprite.container.scale.set(LARGE_MAP_CHARACTER_SCALE);
+        }
         for (const child of [...charSprite.container.children]) {
           enemy.container.addChild(child);
         }
@@ -446,6 +469,10 @@ export function GameScreen() {
         const enemy = createEnemy(type, pt.x, pt.y, genome);
         enemy.applyDifficulty(currentDifficulty);
         applyTempEasyTuning(enemy);
+        if (isLargeMap) {
+          enemy.speed *= LARGE_MAP_ENEMY_SPEED_MULTIPLIER;
+          enemy.container.scale.set(LARGE_MAP_CHARACTER_SCALE);
+        }
         enemy.container.zIndex = 10;
         worldContainer.addChild(enemy.container);
         enemiesRef.current.push(enemy);
@@ -600,7 +627,7 @@ export function GameScreen() {
           trapdoorReturnTimerRef.current -= dtSeconds;
           if (trapdoorReturnTimerRef.current <= 0) {
             trapdoorReturnPendingRef.current = false;
-            storeActionsRef.current.setScreen('mainMenu');
+            returnToMainMenu();
           }
           input.endFrame();
           return;
@@ -643,7 +670,8 @@ export function GameScreen() {
         const moveVec = input.getMovementVector();
         const moveX = moveVec.x;
         const moveY = moveVec.y;
-        const basePlayerMoveSpeed = TEMP_EASY_GA_TEST_MODE ? EASY_PLAYER_MOVE_SPEED : 160;
+        const basePlayerMoveSpeed = (TEMP_EASY_GA_TEST_MODE ? EASY_PLAYER_MOVE_SPEED : 160)
+          * (isLargeMap ? LARGE_MAP_PLAYER_SPEED_MULTIPLIER : 1);
         const moveSpeed = (p.state.isInvisible ? basePlayerMoveSpeed + 40 : basePlayerMoveSpeed) * dtSeconds;
 
         if (moveX !== 0 || moveY !== 0) {
@@ -878,7 +906,7 @@ export function GameScreen() {
                   graveSprite.anchor.set(0.5);
                   p.sprite?.container.addChild(graveSprite);
                 });
-                setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 3500);
+                setTimeout(returnToMainMenu, 3500);
               }
             }
           }
@@ -942,7 +970,7 @@ export function GameScreen() {
               graveSprite.anchor.set(0.5);
               p.sprite?.container.addChild(graveSprite);
             });
-            setTimeout(() => storeActionsRef.current.setScreen('mainMenu'), 3500);
+            setTimeout(returnToMainMenu, 3500);
           }
         });
 
@@ -981,6 +1009,8 @@ export function GameScreen() {
 
       // Return cleanup function
       const cleanup = () => {
+        isPausedRef.current = false;
+        storeActionsRef.current.setPaused(false);
         unsubNotif();
         window.removeEventListener('resize', onResize);
         input.destroy();
@@ -1065,7 +1095,7 @@ export function GameScreen() {
           <button
             className="btn btn-pixel"
             style={{ marginTop: '24px' }}
-            onClick={() => storeActionsRef.current.setScreen('mainMenu')}
+            onClick={returnToMainMenu}
           >
             ← Main Menu
           </button>
@@ -1098,5 +1128,3 @@ export function GameScreen() {
     </div>
   );
 }
-
-

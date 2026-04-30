@@ -33,6 +33,7 @@ export interface DungeonData {
   tiledFirstGid?: number;
   tiledWidth?: number;
   tiledHeight?: number;
+  tiledTilesets?: TiledTilesetData[];
 }
 
 /** Parsed Tiled layer for GID-based rendering */
@@ -41,6 +42,14 @@ export interface TiledLayerData {
   data: number[];
   width: number;
   height: number;
+}
+
+export interface TiledTilesetData {
+  firstGid: number;
+  source: string;
+  imagePath: string;
+  tileWidth: number;
+  tileHeight: number;
 }
 
 interface RGB {
@@ -73,12 +82,24 @@ function stripFlipFlags(gid: number): number {
   return (gid & GID_MASK) >>> 0;
 }
 
+function resolveTilesetImagePath(source: string): string {
+  const normalized = source.replace(/\\/g, '/');
+  const filename = normalized.split('/').pop() ?? normalized;
+  const basename = filename.replace(/\.[^.]+$/, '');
+
+  if (basename.toLowerCase() === 'dungeon2') {
+    return '/assets/dungeon-pack/dungeon_tileset.png';
+  }
+
+  return `/assets/dungeon-pack/${basename}.png`;
+}
+
 /** Generate a complete dungeon floor */
 export async function generateDungeon(
   width: number, height: number, floor: number, biome: BiomeType = BiomeType.DUNGEON, selectedMap: string): Promise<DungeonData> {
   // Floor 1: try Tiled JSON map first (grinmap.json)
   if (floor === 1) {
-    const fromTiled = await generateFloorFromTiledJson(floor, biome);
+    const fromTiled = await generateFloorFromTiledJson(floor, biome, selectedMap);
     if (fromTiled) return fromTiled;
 
     // Fallback: try PNG layout
@@ -182,12 +203,16 @@ export async function generateDungeon(
 
 async function generateFloorFromTiledJson(
   floor: number,
-  biome: BiomeType
+  biome: BiomeType,
+  selectedMap: string
 ): Promise<DungeonData | null> {
   if (typeof window === 'undefined') return null;
 
   try {
-    const response = await fetch('/assets/maps/grinmap.json');
+    const mapPath = selectedMap === 'forest_ruins'
+      ? '/assets/maps/grinmap2.json'
+      : '/assets/maps/grinmap.json';
+    const response = await fetch(mapPath);
     if (!response.ok) return null;
 
     const mapData = await response.json();
@@ -195,6 +220,16 @@ async function generateFloorFromTiledJson(
     const tileWidth: number = mapData.tilewidth;
     const tileHeight: number = mapData.tileheight;
     const firstGid: number = mapData.tilesets?.[0]?.firstgid ?? 1;
+    const tiledTilesets: TiledTilesetData[] = (mapData.tilesets ?? []).map((tileset: { firstgid?: number; source?: string; tilewidth?: number; tileheight?: number }) => {
+      const source = tileset.source ?? '';
+      return {
+        firstGid: tileset.firstgid ?? 1,
+        source,
+        imagePath: resolveTilesetImagePath(source),
+        tileWidth: tileset.tilewidth ?? tileWidth,
+        tileHeight: tileset.tileheight ?? tileHeight,
+      };
+    });
 
     if (!mapData.layers || mapData.layers.length === 0) return null;
 
@@ -359,6 +394,7 @@ async function generateFloorFromTiledJson(
       tiledFirstGid: firstGid,
       tiledWidth: mapW,
       tiledHeight: mapH,
+      tiledTilesets,
     };
   } catch (err) {
     console.warn('[DungeonGenerator] Failed to load Tiled JSON map:', err);

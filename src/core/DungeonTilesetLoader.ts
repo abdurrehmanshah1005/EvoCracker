@@ -75,6 +75,7 @@ export interface TiledTilesetEntry {
   texture: Texture;
   columns: number;
   tilePx: number;
+  sourceKey: string;
 }
 
 // ── Tiled animation frame definition ────────────────────────────────
@@ -94,10 +95,15 @@ export interface TiledAnimDef {
   frames: TiledAnimFrame[];
 }
 
+export interface TiledTilesetConfig {
+  firstGid: number;
+  imagePath: string;
+  tileWidth?: number;
+  source?: string;
+}
+
 
 // ── Animation data parsed from TSX tileset files ────────────────────
-// dungeon2.tsx (firstgid = 1)
-const DUNGEON_TILESET_FIRSTGID = 1;
 const DUNGEON_TILESET_ANIMS: { localId: number; frames: TiledAnimFrame[] }[] = [
   { localId: 207, frames: [{ tileId: 207, durationMs: 200 }, { tileId: 157, durationMs: 100 }] },
   { localId: 208, frames: [{ tileId: 208, durationMs: 200 }, { tileId: 158, durationMs: 100 }] },
@@ -110,8 +116,6 @@ const DUNGEON_TILESET_ANIMS: { localId: number; frames: TiledAnimFrame[] }[] = [
   ]},
 ];
 
-// Chest.tsx (firstgid = 626)
-const CHEST_TILESET_FIRSTGID = 626;
 const CHEST_TILESET_ANIMS: { localId: number; frames: TiledAnimFrame[] }[] = [
   { localId: 0,  frames: [{ tileId: 16, durationMs: 200 }, { tileId: 22, durationMs: 500 }] },
   { localId: 16, frames: [
@@ -120,11 +124,51 @@ const CHEST_TILESET_ANIMS: { localId: number; frames: TiledAnimFrame[] }[] = [
   ]},
 ];
 
+const VELMORA_TRAP_TILESET_ANIMS: { localId: number; frames: TiledAnimFrame[] }[] = [
+  { localId: 0, frames: [
+    { tileId: 0, durationMs: 110 },
+    { tileId: 1, durationMs: 110 },
+    { tileId: 2, durationMs: 110 },
+    { tileId: 3, durationMs: 500 },
+    { tileId: 2, durationMs: 110 },
+    { tileId: 1, durationMs: 110 },
+    { tileId: 0, durationMs: 110 },
+  ]},
+];
+
+const VELMORA_DOOR_TILESET_ANIMS: { localId: number; frames: TiledAnimFrame[] }[] = [
+  { localId: 73, frames: [
+    { tileId: 73, durationMs: 110 },
+    { tileId: 77, durationMs: 110 },
+    { tileId: 81, durationMs: 110 },
+    { tileId: 85, durationMs: 110 },
+    { tileId: 87, durationMs: 500 },
+    { tileId: 85, durationMs: 110 },
+    { tileId: 81, durationMs: 110 },
+    { tileId: 77, durationMs: 110 },
+    { tileId: 73, durationMs: 110 },
+  ]},
+];
+
+const DUNGEON_TILESET_SOURCE_KEYS = new Set<string>(['dungeon2', 'dungeon_tileset']);
+const CHEST_TILESET_SOURCE_KEYS = new Set<string>(['chest']);
+const VELMORA_TRAP_TILESET_SOURCE_KEYS = new Set<string>(['velmorarealms-traps_free']);
+const VELMORA_DOOR_TILESET_SOURCE_KEYS = new Set<string>(['velmorarealms-doors_free']);
+const CHEST_LOCAL_IDS = new Set<number>([0, 16]);
+const DUNGEON_SPEAR_TRAP_LOCAL_IDS = new Set<number>([254]);
+const VELMORA_SPEAR_TRAP_LOCAL_IDS = new Set<number>([0]);
+const WOODEN_TRAPDOOR_LOCAL_IDS = new Set<number>([207, 208, 232, 233]);
+const GATE_LOCAL_IDS = new Set<number>([73]);
+
 /**
  * Map from global GID → animation definition.
  * Built once during loadTileset().
  */
 const animationMap = new Map<number, TiledAnimDef>();
+const chestAnimGids = new Set<number>();
+const spearTrapGids = new Set<number>();
+const woodenTrapdoorGids = new Set<number>();
+const gateAnimGids = new Set<number>();
 
 // ── State ───────────────────────────────────────────────────────────
 let legacyTilesetTexture: Texture | null = null;
@@ -146,16 +190,81 @@ function getCacheBustedPath(basePath: string): string {
   return basePath;
 }
 
+function normalizeTilesetSourceKey(source: string): string {
+  const normalized = source.replace(/\\/g, '/');
+  const filename = normalized.split('/').pop() ?? normalized;
+  return filename.replace(/\.[^.]+$/, '').toLowerCase();
+}
+
+function registerTileRoleGids(entry: TiledTilesetEntry) {
+  if (CHEST_TILESET_SOURCE_KEYS.has(entry.sourceKey)) {
+    for (const localId of CHEST_LOCAL_IDS) {
+      chestAnimGids.add(entry.firstGid + localId);
+    }
+  }
+
+  if (DUNGEON_TILESET_SOURCE_KEYS.has(entry.sourceKey)) {
+    for (const localId of DUNGEON_SPEAR_TRAP_LOCAL_IDS) {
+      spearTrapGids.add(entry.firstGid + localId);
+    }
+    for (const localId of WOODEN_TRAPDOOR_LOCAL_IDS) {
+      woodenTrapdoorGids.add(entry.firstGid + localId);
+    }
+  }
+
+  if (VELMORA_TRAP_TILESET_SOURCE_KEYS.has(entry.sourceKey)) {
+    for (const localId of VELMORA_SPEAR_TRAP_LOCAL_IDS) {
+      spearTrapGids.add(entry.firstGid + localId);
+    }
+  }
+
+  if (VELMORA_DOOR_TILESET_SOURCE_KEYS.has(entry.sourceKey)) {
+    for (const localId of GATE_LOCAL_IDS) {
+      gateAnimGids.add(entry.firstGid + localId);
+    }
+  }
+}
+
+function registerTilesetAnimations(entry: TiledTilesetEntry) {
+  let animationDefs: { localId: number; frames: TiledAnimFrame[] }[] | null = null;
+
+  if (DUNGEON_TILESET_SOURCE_KEYS.has(entry.sourceKey)) {
+    animationDefs = DUNGEON_TILESET_ANIMS;
+  } else if (CHEST_TILESET_SOURCE_KEYS.has(entry.sourceKey)) {
+    animationDefs = CHEST_TILESET_ANIMS;
+  } else if (VELMORA_TRAP_TILESET_SOURCE_KEYS.has(entry.sourceKey)) {
+    animationDefs = VELMORA_TRAP_TILESET_ANIMS;
+  } else if (VELMORA_DOOR_TILESET_SOURCE_KEYS.has(entry.sourceKey)) {
+    animationDefs = VELMORA_DOOR_TILESET_ANIMS;
+  }
+
+  if (!animationDefs) return;
+
+  for (const anim of animationDefs) {
+    const globalGid = anim.localId + entry.firstGid;
+    animationMap.set(globalGid, {
+      localTileId: anim.localId,
+      firstGid: entry.firstGid,
+      frames: anim.frames,
+    });
+  }
+}
+
 /**
  * Load the legacy tileset spritesheet (tileset_v2.png). Call once during game init.
  */
-export async function loadTileset(): Promise<boolean> {
+export async function loadTileset(tiledTilesetConfigs: TiledTilesetConfig[] = []): Promise<boolean> {
   tilesetLoadRevision += 1;
   legacyTextureCache.clear();
   tiledTextureCache.clear();
   legacyTilesetTexture = null;
   tiledTilesetTexture = null;
   tiledTilesets = [];
+  animationMap.clear();
+  chestAnimGids.clear();
+  spearTrapGids.clear();
+  woodenTrapdoorGids.clear();
+  gateAnimGids.clear();
 
   let legacyOk = false;
   let tiledOk = false;
@@ -173,65 +282,49 @@ export async function loadTileset(): Promise<boolean> {
     console.warn('[DungeonTilesetLoader] tileset_v2.png not found, using fallback colors');
   }
 
-  // Load Tiled map primary tileset (dungeon_tileset.png, firstgid=1)
-  try {
-    const loadPath = getCacheBustedPath(TILED_TILESET_PATH);
-    tiledTilesetTexture = await Assets.load(loadPath) as Texture;
-    tiledTilesetTexture.source.scaleMode = 'nearest';
-    tiledTilePx = 16;
-    tiledTilesetColumns = Math.max(1, Math.floor(tiledTilesetTexture.width / tiledTilePx));
-    console.info(`[DungeonTilesetLoader] Loaded Tiled tileset: ${TILED_TILESET_PATH} (${tiledTilesetTexture.width}x${tiledTilesetTexture.height}, ${tiledTilesetColumns} cols)`);
-    tiledTilesets.push({
-      firstGid: 1,
-      texture: tiledTilesetTexture,
-      columns: tiledTilesetColumns,
-      tilePx: tiledTilePx,
-    });
-    tiledOk = true;
-  } catch {
-    console.warn('[DungeonTilesetLoader] dungeon_tileset.png not found');
-  }
+  const configs = tiledTilesetConfigs.length > 0
+    ? tiledTilesetConfigs
+    : [
+        { firstGid: 1, imagePath: TILED_TILESET_PATH, tileWidth: 16, source: 'dungeon2.tsx' },
+        { firstGid: 626, imagePath: CHEST_TILESET_PATH, tileWidth: 16, source: 'Chest.tsx' },
+      ];
 
-  // Load secondary tileset: Chest.png (firstgid=626)
-  try {
-    const loadPath = getCacheBustedPath(CHEST_TILESET_PATH);
-    const chestTexture = await Assets.load(loadPath) as Texture;
-    chestTexture.source.scaleMode = 'nearest';
-    const chestTilePx = 16;
-    const chestColumns = Math.max(1, Math.floor(chestTexture.width / chestTilePx));
-    console.info(`[DungeonTilesetLoader] Loaded Chest tileset: ${CHEST_TILESET_PATH} (${chestTexture.width}x${chestTexture.height}, ${chestColumns} cols)`);
-    tiledTilesets.push({
-      firstGid: 626,
-      texture: chestTexture,
-      columns: chestColumns,
-      tilePx: chestTilePx,
-    });
-    tiledOk = true;
-  } catch {
-    console.warn('[DungeonTilesetLoader] Chest.png not found');
+  for (const config of configs) {
+    try {
+      const loadPath = getCacheBustedPath(config.imagePath);
+      const texture = await Assets.load(loadPath) as Texture;
+      texture.source.scaleMode = 'nearest';
+
+      const tilePx = Math.max(1, config.tileWidth ?? 16);
+      const columns = Math.max(1, Math.floor(texture.width / tilePx));
+      const sourceKey = normalizeTilesetSourceKey(config.source ?? config.imagePath);
+      const entry: TiledTilesetEntry = {
+        firstGid: config.firstGid,
+        texture,
+        columns,
+        tilePx,
+        sourceKey,
+      };
+
+      if (!tiledTilesetTexture) {
+        tiledTilesetTexture = texture;
+        tiledTilePx = tilePx;
+        tiledTilesetColumns = columns;
+      }
+
+      tiledTilesets.push(entry);
+      registerTilesetAnimations(entry);
+      registerTileRoleGids(entry);
+      tiledOk = true;
+
+      console.info(`[DungeonTilesetLoader] Loaded Tiled tileset: ${config.imagePath} (firstgid=${config.firstGid}, ${texture.width}x${texture.height}, ${columns} cols)`);
+    } catch {
+      console.warn(`[DungeonTilesetLoader] Failed to load Tiled tileset: ${config.imagePath}`);
+    }
   }
 
   // Sort tilesets by firstGid ascending for proper GID resolution
   tiledTilesets.sort((a, b) => a.firstGid - b.firstGid);
-
-  // Build animation lookup map from TSX animation data
-  animationMap.clear();
-  for (const anim of DUNGEON_TILESET_ANIMS) {
-    const globalGid = anim.localId + DUNGEON_TILESET_FIRSTGID;
-    animationMap.set(globalGid, {
-      localTileId: anim.localId,
-      firstGid: DUNGEON_TILESET_FIRSTGID,
-      frames: anim.frames,
-    });
-  }
-  for (const anim of CHEST_TILESET_ANIMS) {
-    const globalGid = anim.localId + CHEST_TILESET_FIRSTGID;
-    animationMap.set(globalGid, {
-      localTileId: anim.localId,
-      firstGid: CHEST_TILESET_FIRSTGID,
-      frames: anim.frames,
-    });
-  }
   console.info(`[DungeonTilesetLoader] Built animation map: ${animationMap.size} animated tiles`);
 
   return legacyOk || tiledOk;
@@ -248,7 +341,7 @@ export function isTilesetLoaded(): boolean {
  * Check if the Tiled map tileset is loaded
  */
 export function isTiledTilesetLoaded(): boolean {
-  return tiledTilesetTexture !== null;
+  return tiledTilesets.length > 0;
 }
 
 // ── Legacy tileset extraction ───────────────────────────────────────
@@ -406,6 +499,22 @@ export function getTiledTileAnimation(rawGid: number): { texture: Texture; time:
   if (frameObjects.length < 2) return null; // Need at least 2 frames for animation
 
   return frameObjects;
+}
+
+export function isChestTileGid(rawGid: number): boolean {
+  return chestAnimGids.has(stripTiledFlipFlags(rawGid));
+}
+
+export function isSpearTrapTileGid(rawGid: number): boolean {
+  return spearTrapGids.has(stripTiledFlipFlags(rawGid));
+}
+
+export function isWoodenTrapdoorTileGid(rawGid: number): boolean {
+  return woodenTrapdoorGids.has(stripTiledFlipFlags(rawGid));
+}
+
+export function isGateTileGid(rawGid: number): boolean {
+  return gateAnimGids.has(stripTiledFlipFlags(rawGid));
 }
 
 // ── Animated item frame loaders ─────────────────────────────────────
