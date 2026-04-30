@@ -133,6 +133,7 @@ export function GameScreen() {
   const isLoadedRef = useRef(false);
   const [notification, setNotification] = useState<string | null>(null);
   const [isDead, setIsDead] = useState(false);
+  const [showCalibrationLoading, setShowCalibrationLoading] = useState(false);
   const notifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Player state ref
@@ -389,10 +390,17 @@ export function GameScreen() {
         .filter((i) => i !== selectedCharacter);
 
       const enemyTypes = getEnemyTypesForFloor(currentFloor);
+      const isCalibrationRound = currentFloor === 1 && intelligenceRunRef.current === 1;
+
       const baseEnemyCap = TEMP_EASY_GA_TEST_MODE
         ? 3 + currentFloor
         : 6 + currentFloor * 3;
-      const maxEnemies = Math.min(dungeon.enemySpawnPoints.length, baseEnemyCap);
+      let maxEnemies = Math.min(dungeon.enemySpawnPoints.length, baseEnemyCap);
+      if (isCalibrationRound) {
+        maxEnemies = 0;
+        floorClearedRef.current = true;
+      }
+      
       const spawnPts = dungeon.enemySpawnPoints.slice(0, maxEnemies);
       const challengeTier = Math.max(0, intelligenceRunRef.current - 1);
 
@@ -479,8 +487,12 @@ export function GameScreen() {
         allSpawnedEnemiesRef.current.push(enemy);
       }
 
-      const modePrefix = TEMP_EASY_GA_TEST_MODE ? 'TEST EASY MODE — ' : '';
-      showNotification(`${modePrefix}Floor ${dungeon.floor} — Iteration ${intelligenceRunRef.current} — ${spawnPts.length} enemies!`);
+      if (isCalibrationRound) {
+        showNotification(`CALIBRATION ROUND — Explore to determine your playstyle!`);
+      } else {
+        const modePrefix = TEMP_EASY_GA_TEST_MODE ? 'TEST EASY MODE — ' : '';
+        showNotification(`${modePrefix}Floor ${dungeon.floor} — Iteration ${intelligenceRunRef.current} — ${spawnPts.length} enemies!`);
+      }
 
       const finalizeLearning = (result: 'died' | 'manualExit' | 'floorClear') => {
         if (learningCommittedRef.current) return;
@@ -922,11 +934,19 @@ export function GameScreen() {
         }
 
         // ── EXIT / PROGRESSION ────────────────────────────────────
+        const isGrinmap2 = selectedMap === LARGE_MAP_ID;
+        let atExit = false;
+        if (isGrinmap2) {
+          atExit = p.tileY >= dungeon.height - 4; // Bottom edge
+        } else {
+          atExit = p.tileX >= dungeon.width - 4;  // Right edge
+        }
+        atExit = atExit || (p.tileX === dungeon.exitPoint.x && p.tileY === dungeon.exitPoint.y);
+
         if (
           floorClearedRef.current &&
           !floorAdvancePendingRef.current &&
-          p.tileX === dungeon.exitPoint.x &&
-          p.tileY === dungeon.exitPoint.y
+          atExit
         ) {
           floorAdvancePendingRef.current = true;
 
@@ -934,10 +954,19 @@ export function GameScreen() {
 
           intelligenceRunRef.current = iteration + 1;
           setIntelligenceRun(iteration + 1);
-          showNotification('🏆 Learning complete for this iteration. Advancing floor with evolved enemies!');
-          setTimeout(() => {
+
+          if (isCalibrationRound) {
+            setShowCalibrationLoading(true);
             storeActionsRef.current.nextFloor();
-          }, 700);
+            setTimeout(() => {
+              setShowCalibrationLoading(false);
+            }, 1500);
+          } else {
+            showNotification('🏆 Learning complete for this iteration. Advancing floor with evolved enemies!');
+            setTimeout(() => {
+              storeActionsRef.current.nextFloor();
+            }, 700);
+          }
         }
 
         // ── TRAP DAMAGE ────────────────────────────────────────────
@@ -1056,6 +1085,14 @@ export function GameScreen() {
       <div ref={canvasRef} className="game-canvas-wrapper" />
 
       {isLoaded && <PlayerHUD items={playerRef.current.items} />}
+
+      {showCalibrationLoading && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 150, background: 'rgba(0,0,0,0.9)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <h2 style={{ fontSize: '2.5rem', color: '#4ade80', fontFamily: 'var(--font-pixel)', marginBottom: '1rem' }}>Calibration Round Completed</h2>
+          <p style={{ fontSize: '1.5rem', color: 'white', fontFamily: 'var(--font-pixel)', animation: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite' }}>Loading Level 1...</p>
+        </div>
+      )}
+
       {analyticsEnabled && <AIAnalyticsPanel />}
 
       {notification && (
@@ -1119,7 +1156,7 @@ export function GameScreen() {
         </div>
       )}
 
-      {!isLoaded && (
+      {!isLoaded && !showCalibrationLoading && (
         <div className="loading-screen">
           <div className="loading-spinner" />
           <div className="loading-text">Generating dungeon...</div>

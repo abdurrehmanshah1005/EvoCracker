@@ -854,16 +854,6 @@ const ENEMY_SHAPES: Record<string, (g: Graphics, color: number) => void> = {
     g.circle(4, -7, 3);
     g.fill({ color: 0xffff00 });
   },
-  [EnemyType.ARCHER]: (g, c) => {
-    g.rect(-6, -10, 12, 22);
-    g.fill({ color: c });
-    g.arc(10, 0, 8, -Math.PI * 0.5, Math.PI * 0.5);
-    g.stroke({ color: 0x8B4513, width: 2 });
-    g.rect(4, -1, 10, 2);
-    g.fill({ color: 0x8B4513 });
-    g.poly([14, -3, 18, 0, 14, 3]);
-    g.fill({ color: 0xcccccc });
-  },
 };
 
 export function createEnemySprite(

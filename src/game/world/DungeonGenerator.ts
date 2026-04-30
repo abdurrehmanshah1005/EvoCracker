@@ -97,8 +97,8 @@ function resolveTilesetImagePath(source: string): string {
 /** Generate a complete dungeon floor */
 export async function generateDungeon(
   width: number, height: number, floor: number, biome: BiomeType = BiomeType.DUNGEON, selectedMap: string): Promise<DungeonData> {
-  // Floor 1: try Tiled JSON map first (grinmap.json)
-  if (floor === 1) {
+  // Floor 1 (Calibration) & Floor 2 (Level 1): try Tiled JSON map first
+  if (floor === 1 || floor === 2) {
     const fromTiled = await generateFloorFromTiledJson(floor, biome, selectedMap);
     if (fromTiled) return fromTiled;
 
