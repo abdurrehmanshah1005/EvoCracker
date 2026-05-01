@@ -379,8 +379,12 @@ export class Archer extends EnemyBase {
       ]),
       // Seek better vantage (Hill Climbing)
       new Sequence('reposition', [
-        new Action('seekVantage', (_b: Blackboard) => {
-          this.alertState = AlertState.SUSPICIOUS;
+        new Action('seekVantage', (b: Blackboard) => {
+          this.alertState = AlertState.CHASING;
+          if (b.playerVisible) {
+            b.lastKnownPlayerX = b.playerX;
+            b.lastKnownPlayerY = b.playerY;
+          }
           this.inPosition = false;
           return BTStatus.RUNNING;
         }),
@@ -421,17 +425,7 @@ export function createEnemy(
 }
 
 // Map floor number to which enemy types appear
-export function getEnemyTypesForFloor(floor: number): EnemyType[] {
-  const allTypes = Object.values(EnemyType);
-  const unlockFloor: Record<string, number> = {
-    [EnemyType.TOAD]: 1,
-    [EnemyType.GHOST]: 1,
-    [EnemyType.FROGGY]: 2,
-    [EnemyType.HEROINE]: 3,
-    [EnemyType.OGRE]: 3,
-    [EnemyType.DEMON]: 4,
-    [EnemyType.TERRIBLE_KNIGHT]: 5,
-    [EnemyType.WEREWOLF]: 6,
-  };
-  return allTypes.filter((t) => (unlockFloor[t] ?? 1) <= floor);
+// All 8 types are available from floor 1 to ensure variety and demonstrate all algorithms
+export function getEnemyTypesForFloor(_floor: number): EnemyType[] {
+  return Object.values(EnemyType);
 }

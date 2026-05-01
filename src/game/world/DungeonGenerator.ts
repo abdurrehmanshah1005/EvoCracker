@@ -97,16 +97,16 @@ function resolveTilesetImagePath(source: string): string {
 /** Generate a complete dungeon floor */
 export async function generateDungeon(
   width: number, height: number, floor: number, biome: BiomeType = BiomeType.DUNGEON, selectedMap: string): Promise<DungeonData> {
-  // Floor 1 (Calibration) & Floor 2 (Level 1): try Tiled JSON map first
+  // Always try to load the selected Tiled JSON or PNG map first
+  const fromTiled = await generateFloorFromTiledJson(floor, biome, selectedMap);
+  if (fromTiled) return fromTiled;
+
+  // Fallback: try PNG layout
+  const fromPng = await generateFloorFromPngLayout(width, height, floor, biome);
+  if (fromPng) return fromPng;
+
+  // Fallback if image loading/parsing fails
   if (floor === 1 || floor === 2) {
-    const fromTiled = await generateFloorFromTiledJson(floor, biome, selectedMap);
-    if (fromTiled) return fromTiled;
-
-    // Fallback: try PNG layout
-    const fromPng = await generateFloorFromPngLayout(width, height, floor, biome);
-    if (fromPng) return fromPng;
-
-    // Fallback if image loading/parsing fails
     const handcrafted = generateHandcraftedCryptMap(width, height, floor, biome);
     if (handcrafted) return handcrafted;
   }

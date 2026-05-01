@@ -14,7 +14,7 @@ import { dls } from './algorithms/DLS';
 import { ucs } from './algorithms/UCS';
 import { aStar } from './algorithms/AStar';
 import { greedyBFS } from './algorithms/GreedyBFS';
-import { hillClimbing } from './algorithms/HillClimbing';
+import { hillClimbing, targetedVantageScore } from './algorithms/HillClimbing';
 
 export interface PathfindingRequest {
   algorithm: AlgorithmType;
@@ -58,7 +58,7 @@ export function findPath(request: PathfindingRequest): PathResult {
       return greedyBFS(grid, startX, startY, goalX, goalY, heuristic);
 
     case AlgorithmType.HILL_CLIMBING:
-      return hillClimbing(grid, startX, startY);
+      return hillClimbing(grid, startX, startY, (x, y, g) => targetedVantageScore(x, y, g, goalX, goalY, 5));
 
     default:
       console.warn(`[AlgorithmRegistry] Unknown algorithm: ${algorithm}, falling back to BFS`);

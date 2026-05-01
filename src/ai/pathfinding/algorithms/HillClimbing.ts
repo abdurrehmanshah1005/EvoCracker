@@ -65,9 +65,9 @@ export function targetedVantageScore(
   // Distance penalty: too far from target is bad
   const dist = Math.abs(x - targetX) + Math.abs(y - targetY);
   if (dist <= attackRange) {
-    score += 20; // Big bonus for being in attack range
+    score += 100 - Math.abs(dist - attackRange) * 10; // Strong gradient to stay at max range
   } else {
-    score -= (dist - attackRange) * 2; // Penalty for being out of range
+    score -= (dist - attackRange) * 20; // Massive penalty for being out of range
   }
 
   // Line of sight check (simple — walk tiles toward target)

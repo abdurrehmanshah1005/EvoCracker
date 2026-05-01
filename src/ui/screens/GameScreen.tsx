@@ -557,10 +557,11 @@ export function GameScreen() {
         allSpawnedEnemiesRef.current.push(enemy);
       }
 
-      // Spawn remaining enemies as normal archetypes
+      // Spawn remaining enemies as normal archetypes — round-robin through
+      // all 8 enemy types to guarantee variety on every floor.
       for (; spawnIdx < spawnPts.length; spawnIdx++) {
         const pt = spawnPts[spawnIdx];
-        const type = enemyTypes[randomInt(0, enemyTypes.length - 1)];
+        const type = enemyTypes[spawnIdx % enemyTypes.length];
         const genome = nextGenome(spawnIdx);
         const enemy = createEnemy(type, pt.x, pt.y, genome);
         enemy.applyDifficulty(currentDifficulty);
@@ -822,7 +823,20 @@ export function GameScreen() {
           isPausedRef.current = !isPausedRef.current;
           storeActionsRef.current.togglePause();
         }
+        // Toggle analytics during pause with backtick
+        if (isPausedRef.current && input.isCodeJustPressed('Backquote')) {
+          storeActionsRef.current.toggleAnalytics();
+        }
         if (isPausedRef.current || playerDeadRef.current) {
+          // Still update analytics snapshot while paused
+          analyticsTimer += dt;
+          if (analyticsTimer > 0.5) {
+            analyticsTimer = 0;
+            const liveEnemies = enemiesRef.current.filter((e) => e.isAlive);
+            storeActionsRef.current.setEnemyAnalytics(
+              liveEnemies.slice(0, 15).map((e) => e.getAnalyticsSnapshot())
+            );
+          }
           input.endFrame();
           return;
         }
@@ -1189,11 +1203,12 @@ export function GameScreen() {
           }
         });
 
-        // ── ANALYTICS ──────────────────────────────────────────────
+        // ── ANALYTICS (update even during pause so panel stays live) ──
         if (analyticsTimer > 0.5) {
           analyticsTimer = 0;
+          const liveEnemies = enemiesRef.current.filter((e) => e.isAlive);
           storeActionsRef.current.setEnemyAnalytics(
-            enemiesRef.current.slice(0, 15).map((e) => e.getAnalyticsSnapshot())
+            liveEnemies.slice(0, 15).map((e) => e.getAnalyticsSnapshot())
           );
         }
 
@@ -1297,7 +1312,12 @@ export function GameScreen() {
         </div>
       )}
 
-      {analyticsEnabled && <AIAnalyticsPanel />}
+      {/* Analytics panel — always rendered when enabled, even during pause */}
+      {analyticsEnabled && (
+        <div style={{ zIndex: 120, position: 'relative' }}>
+          <AIAnalyticsPanel />
+        </div>
+      )}
 
       {notification && (
         <div className="toast-container">
@@ -1331,16 +1351,30 @@ export function GameScreen() {
           display: 'flex', flexDirection: 'column',
           alignItems: 'center', justifyContent: 'center',
           zIndex: 100, fontFamily: 'var(--font-pixel)',
+          pointerEvents: 'none',
         }}>
-          <div style={{ fontSize: '2rem', color: 'var(--gold)', marginBottom: '16px' }}>⏸ PAUSED</div>
-          <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Press <span style={{ color: '#88ff88' }}>Escape</span> to resume</div>
-          <button
-            className="btn btn-pixel"
-            style={{ marginTop: '24px' }}
-            onClick={returnToMainMenu}
-          >
-            ← Main Menu
-          </button>
+          <div style={{ pointerEvents: 'auto', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+            <div style={{ fontSize: '2rem', color: 'var(--gold)', marginBottom: '16px' }}>⏸ PAUSED</div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>Press <span style={{ color: '#88ff88' }}>Escape</span> to resume</div>
+            <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+              <button
+                className="btn btn-pixel"
+                onClick={returnToMainMenu}
+              >
+                ← Main Menu
+              </button>
+              <button
+                className="btn btn-pixel"
+                style={{ borderColor: analyticsEnabled ? 'var(--purple-light)' : 'var(--border-subtle)' }}
+                onClick={() => storeActionsRef.current.toggleAnalytics()}
+              >
+                {analyticsEnabled ? '🧠 Hide Analytics' : '🧠 Show Analytics'}
+              </button>
+            </div>
+            <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '12px' }}>
+              <span style={{ color: '#aa66ff' }}>`</span> Toggle AI Panel
+            </div>
+          </div>
         </div>
       )}
 

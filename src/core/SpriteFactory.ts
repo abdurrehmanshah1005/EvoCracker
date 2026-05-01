@@ -786,179 +786,29 @@ export function createCharacterEnemySprite(characterIndex: number): GameSprite {
   return createEnemySprite(EnemyType.FROGGY);
 }
 
-// ── Enemy Sprite (original system, kept as fallback) ─────────────────
+// ── Enemy Sprite — uses matching character sprite sheets ──────────────
+// Maps each EnemyType to the CHARACTER_DEFS index whose name matches,
+// so sprites and analytics names are always consistent.
 
-const ENEMY_SHAPES: Record<string, (g: Graphics, color: number) => void> = {
-  [EnemyType.TOAD]: (g, c) => {
-    g.ellipse(0, 4, TILE_SIZE * 0.35, TILE_SIZE * 0.25);
-    g.fill({ color: c });
-    g.circle(0, 0, TILE_SIZE * 0.28);
-    g.fill({ color: c });
-    g.circle(-5, -2, 3);
-    g.circle(5, -2, 3);
-    g.fill({ color: 0x000000 });
-  },
-  [EnemyType.GHOST]: (g, c) => {
-    g.ellipse(-12, -4, 10, 6);
-    g.ellipse(12, -4, 10, 6);
-    g.fill({ color: c });
-    g.circle(0, 0, TILE_SIZE * 0.2);
-    g.fill({ color: c });
-    g.poly([-3, 4, 3, 4, 0, 8]);
-    g.fill({ color: c });
-  },
-  [EnemyType.HEROINE]: (g, c) => {
-    g.rect(-8, -6, 16, 20);
-    g.fill({ color: c });
-    g.circle(0, -10, 8);
-    g.fill({ color: c, alpha: 0.9 });
-    g.circle(-3, -10, 2);
-    g.circle(3, -10, 2);
-    g.fill({ color: 0xff4444 });
-  },
-  [EnemyType.OGRE]: (g, c) => {
-    g.rect(-9, -10, 18, 22);
-    g.fill({ color: c });
-    g.rect(-7, -6, 8, 12);
-    g.fill({ color: 0x888888 });
-    g.rect(-7, -12, 14, 8);
-    g.fill({ color: c, alpha: 0.8 });
-  },
-  [EnemyType.TERRIBLE_KNIGHT]: (g, c) => {
-    g.rect(-10, -12, 20, 26);
-    g.fill({ color: c });
-    g.poly([-10, -8, -16, 12, -8, 12]);
-    g.fill({ color: 0xff4444 });
-    g.rect(-7, -10, 14, 6);
-    g.fill({ color: 0x000000, alpha: 0.6 });
-  },
-  [EnemyType.WEREWOLF]: (g, c) => {
-    g.poly([0, -14, 8, -6, 6, 12, -6, 12, -8, -6]);
-    g.fill({ color: c });
-    g.rect(-5, -10, 10, 6);
-    g.fill({ color: 0x333333 });
-    g.rect(-4, -8, 3, 2);
-    g.rect(1, -8, 3, 2);
-    g.fill({ color: 0xff2222 });
-  },
-  [EnemyType.FROGGY]: (g, c) => {
-    g.circle(0, 2, TILE_SIZE * 0.28);
-    g.fill({ color: c });
-    g.circle(0, -6, TILE_SIZE * 0.22);
-    g.fill({ color: c });
-    g.poly([-10, -8, -6, -2, -4, -10]);
-    g.fill({ color: c });
-    g.poly([10, -8, 6, -2, 4, -10]);
-    g.fill({ color: c });
-    g.circle(-4, -7, 3);
-    g.circle(4, -7, 3);
-    g.fill({ color: 0xffff00 });
-  },
-};
+const ENEMY_TYPE_TO_CHAR_INDEX: Record<EnemyType, number> = (() => {
+  const map = {} as Record<EnemyType, number>;
+  const enemyTypes = Object.values(EnemyType);
+  for (const et of enemyTypes) {
+    const idx = CHARACTER_DEFS.findIndex(
+      (def) => def.name.toLowerCase() === et.toLowerCase()
+    );
+    map[et] = idx >= 0 ? idx : 0;
+  }
+  return map;
+})();
 
 export function createEnemySprite(
   enemyType: EnemyType,
   _textures?: Record<string, Texture[]>
 ): GameSprite {
-  const container = new Container();
-
-  // Try to load real sprite from asset pack
-  const spriteInfo = ENEMY_SPRITE_MAP[enemyType];
-  const cacheKey = spriteInfo?.folder;
-  const frames = cacheKey ? monsterTextureCache.get(cacheKey) : undefined;
-
-  if (frames && frames.length > 0) {
-    const anim = new AnimatedSprite(frames);
-    anim.animationSpeed = 0.08;
-    anim.anchor.set(0.5);
-    anim.scale.set(2);
-    anim.play();
-    container.addChild(anim);
-
-    const hpBg = new Graphics();
-    hpBg.rect(-12, -20, 24, 4);
-    hpBg.fill({ color: 0x111111 });
-    const hpFill = new Graphics();
-    hpFill.rect(-12, -20, 24, 4);
-    hpFill.fill({ color: 0xff4444 });
-    hpFill.label = 'hpFill';
-    container.addChild(hpBg);
-    container.addChild(hpFill);
-
-    return {
-      container,
-      setAnimation: (state) => {
-        if (state === 'walk') {
-          anim.animationSpeed = 0.12;
-          anim.play();
-        } else if (state === 'attack') {
-          anim.animationSpeed = 0.2;
-          anim.play();
-        } else if (state === 'death') {
-          anim.stop();
-          container.alpha = 0.5;
-        } else {
-          anim.animationSpeed = 0.08;
-          anim.play();
-        }
-      },
-      setFlipX: (flip) => { anim.scale.x = flip ? -2 : 2; },
-      setAlpha: (a) => { container.alpha = a; },
-      setTint: (tint) => { anim.tint = tint; },
-      destroy: () => container.destroy({ children: true }),
-      isPlaceholder: false,
-    };
-  }
-
-  // Placeholder fallback
-  const color = PLACEHOLDER_COLORS[(enemyType as unknown) as keyof typeof PLACEHOLDER_COLORS] ?? 0xffffff;
-  const g = new Graphics();
-  const drawFn = ENEMY_SHAPES[enemyType];
-  if (drawFn) {
-    drawFn(g, color);
-  } else {
-    g.rect(-10, -10, 20, 20);
-    g.fill({ color });
-  }
-
-  const hpBg = new Graphics();
-  hpBg.rect(-12, -20, 24, 4);
-  hpBg.fill({ color: 0x111111 });
-  const hpFill = new Graphics();
-  hpFill.rect(-12, -20, 24, 4);
-  hpFill.fill({ color: 0xff4444 });
-  hpFill.label = 'hpFill';
-
-  container.addChild(g);
-  container.addChild(hpBg);
-  container.addChild(hpFill);
-
-  let _anim: ReturnType<typeof setInterval> | null = null;
-  let _t = Math.random() * Math.PI * 2;
-  const tick = () => {
-    _t += 0.05;
-    g.y = Math.sin(_t) * 2;
-  };
-  _anim = setInterval(tick, 1000 / 30);
-
-  return {
-    container,
-    setAnimation: (state) => {
-      if (state === 'walk') { /* no-op for placeholder */ }
-      if (state === 'attack') { g.tint = 0xffffff; }
-      if (state === 'death') { container.alpha = 0.5; }
-    },
-    setFlipX: (flip) => {
-      g.scale.x = flip ? -1 : 1;
-    },
-    setAlpha: (a) => { container.alpha = a; },
-    setTint: (tint) => { g.tint = tint; },
-    destroy: () => {
-      if (_anim) clearInterval(_anim);
-      container.destroy({ children: true });
-    },
-    isPlaceholder: true,
-  };
+  // Use the matching character sprite sheet for this enemy type
+  const charIndex = ENEMY_TYPE_TO_CHAR_INDEX[enemyType];
+  return createCharacterEnemySprite(charIndex);
 }
 
 // ── Update enemy health bar ───────────────────────────────────────────

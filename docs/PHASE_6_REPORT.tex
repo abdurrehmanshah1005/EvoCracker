@@ -1,0 +1,46 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{geometry}
+\geometry{a4paper, margin=1in}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{graphicx}
+\usepackage{booktabs}
+
+\title{\textbf{EvoCracker: Phase 6 Technical Report}}
+\author{Development Team}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This report outlines the recent architectural improvements and bug resolutions implemented in the EvoCracker system, specifically addressing issues in the AI Analytics Dashboard, enemy spawning logic, and pathfinding state transitions. These changes align with the Phase 6 requirements for finalizing gameplay integrity and data accuracy.
+\end{abstract}
+
+\section{Introduction}
+During the evaluation of the EvoCracker game, several inconsistencies were identified regarding the AI evolution system and the real-time analytics dashboard. The data presented in the \texttt{AIAnalyticsPanel} did not correctly map to the underlying game state, enemy variety was artificially restricted, and pathfinding algorithms were exhibiting unintended state transitions. This document details the resolutions applied to stabilize the engine.
+
+\section{Architectural Changes \& Resolutions}
+
+\subsection{Analytics Dashboard Synchronization}
+\textbf{Issue:} The analytics dashboard displayed "made-up" metrics and inaccurate enemy names relative to their visual sprites. \\
+\textbf{Resolution:} The \texttt{createEnemySprite} method within \texttt{SpriteFactory.ts} was refactored. Previously, it utilized a hardcoded mapping to generic dungeon-pack sprites. It has been updated to dynamically map the runtime \texttt{EnemyType} to its corresponding \texttt{CharacterDef} index. This ensures that the generated sprite explicitly matches the \texttt{EnemyType} string recorded in the telemetry snapshots, unifying the visual representation with the dashboard data. Furthermore, analytics updates were decoupled from the pause state in \texttt{GameScreen.tsx}, allowing real-time inspection of the paused game state.
+
+\subsection{Enemy Spawning and Genetic Diversity}
+\textbf{Issue:} The spawning system failed to instantiate a diverse array of enemy archetypes, limiting the genetic algorithm's search space and resulting in repetitive gameplay. \\
+\textbf{Resolution:} The \texttt{getEnemyTypesForFloor} function in \texttt{Archetypes.ts} was modified to unlock all eight enemy archetypes starting from Floor 1. Additionally, the spawn loop in \texttt{GameScreen.tsx} was refactored from randomized selection to a round-robin distribution. This guarantees that at least one instance of each enemy type is present, maximizing the diversity of pathfinding algorithms active within the environment and providing the Genetic Algorithm (GA) with a comprehensive dataset for fitness evaluation.
+
+\subsection{Pathfinding State Transitions}
+\textbf{Issue:} Enemies were incorrectly switching their core search algorithms when transitioning into \texttt{ALERT} or \texttt{CHASING} states. \\
+\textbf{Resolution:} The \texttt{getActiveAlgorithm} function within \texttt{EnemyBase.ts} was corrected. Enemies now strictly adhere to their assigned \texttt{ENEMY\_DEFAULT\_ALGORITHM} (e.g., Slime uses BFS, Ghost uses DFS) regardless of their alert state. The genome's algorithm weights continue to influence the evolutionary fitness calculations but no longer cause unintended runtime mutations of the pathfinding logic.
+
+\subsection{User Interface Enhancements}
+\textbf{Issue:} The AI Analytics Panel was inaccessible while the game was paused, hindering debugging and analysis. \\
+\textbf{Resolution:} The pause overlay's z-index hierarchy was adjusted, and a toggle hook was added to the \texttt{GameScreen} input loop. The dashboard can now be toggled using the backtick (\`) key while the game is paused, facilitating deep inspection of the evolutionary state without advancing the game simulation.
+
+\section{Conclusion}
+The implementation of these fixes significantly enhances the data integrity of the EvoCracker platform. The synchronization between the backend telemetry and the frontend analytics dashboard ensures that the visual representation of the Genetic Algorithm's progress is both accurate and reliable.
+
+\end{document}

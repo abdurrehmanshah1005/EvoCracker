@@ -266,11 +266,18 @@ function AlgorithmMonitorTab({ enemyAnalytics }: { enemyAnalytics: EnemyAnalytic
       {enemyAnalytics.length > 0 && (
         <div className="analytics-section">
           <div className="analytics-section-title">Active Enemies ({enemyAnalytics.length})</div>
-          {enemyAnalytics.map((enemy) => (
+          {enemyAnalytics.map((enemy) => {
+            const algoColor = '#' + (ALGORITHM_COLORS[enemy.algorithm as AlgorithmType] ?? 0x888888).toString(16).padStart(6, '0');
+            return (
             <div key={enemy.entityId} className="enemy-card">
               <div className="enemy-card-header">
                 <span className="enemy-card-name">{enemy.enemyType} G{enemy.generation}</span>
-                <span className="enemy-card-algo">{enemy.algorithm}</span>
+                <span
+                  className="enemy-card-algo"
+                  style={{ background: algoColor + '30', color: algoColor, border: `1px solid ${algoColor}50` }}
+                >
+                  {enemy.algorithm}
+                </span>
               </div>
               <div className="metric-grid compact">
                 <MetricPill label="HP" value={`${enemy.health}/${enemy.maxHealth}`} />
@@ -303,7 +310,8 @@ function AlgorithmMonitorTab({ enemyAnalytics }: { enemyAnalytics: EnemyAnalytic
                 </span>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </>

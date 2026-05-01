@@ -15,7 +15,7 @@ import {
   createBlackboard, type Blackboard,
 } from '@ai/behavior/BehaviorTree';
 import { BTStatus } from '@utils/constants';
-import { createRandomGenome, sampleAlgorithmFromGenome, type Genome } from '@ai/evolution/GeneticAlgorithm';
+import { createRandomGenome, type Genome } from '@ai/evolution/GeneticAlgorithm';
 import { PathfindingClient } from '@ai/worker/PathfindingClient';
 import type { Grid } from '@ai/pathfinding/Grid';
 import { lerp } from '@utils/math';
@@ -301,9 +301,20 @@ export class EnemyBase {
 
       if (!this.isAlive) return;
 
-      if (result && result.path.length > 1) {
+      if (result && result.path.length > 0) {
         this.currentPath = result.path;
-        this.pathIndex = 1; // Index 0 = current position
+        
+        // Find our current position in the new path to avoid stepping backwards or wasting movement
+        let startIndex = 0;
+        for (let i = 0; i < result.path.length; i++) {
+          if (result.path[i].x === this.tileX && result.path[i].y === this.tileY) {
+            startIndex = i;
+            break;
+          }
+        }
+        this.pathIndex = startIndex + 1;
+      } else {
+        this.currentPath = [];
       }
 
       this.nodesExpanded = result.nodesExpanded;
@@ -329,15 +340,11 @@ export class EnemyBase {
 
   getActiveAlgorithm(): AlgorithmType {
     if (this.isJammed) return AlgorithmType.DFS;
-    switch (this.alertState) {
-      case AlertState.FLEEING: return AlgorithmType.UCS;
-      case AlertState.SUSPICIOUS: return AlgorithmType.BFS;
-      case AlertState.CHASING:
-      case AlertState.ALERT:
-        return sampleAlgorithmFromGenome(this.genome);
-      default:
-        return ENEMY_DEFAULT_ALGORITHM[this.type];
-    }
+    // Always use the enemy type's designated algorithm so the analytics
+    // and gameplay remain consistent (Toad→BFS, Ghost→DFS, etc.).
+    // The genome's algorithm weights influence evolution/fitness, NOT
+    // runtime pathfinding selection.
+    return ENEMY_DEFAULT_ALGORITHM[this.type];
   }
 
   applyJammer(duration: number): void {
