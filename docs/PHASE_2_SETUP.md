@@ -8,11 +8,15 @@ Since EvoCracker uses real-time player data rather than a pre-existing dataset, 
 During this round:
 - **No Enemies Spawn:** The player is free to explore the environment safely.
 - **Telemetry is Active:** The engine records every movement, keystroke, and decision the player makes.
+- **Faster Traversal:** Calibration applies a temporary player speed boost so the setup phase is quick instead of feeling like a slow empty level.
 - **Goal:** To establish a baseline profile of whether the player naturally explores every room (`explorer`), rushes straight to the exit (`rusher`), or uses stealth/hiding mechanics frequently (`stayer`).
 
 ## 2. Telemetry Recorded
 The `GameScreen` continuously monitors and records the following metrics into a `PlayerProfile`:
 - **Total Moves & Time Moving:** How long the player is actively traversing the map.
+- **Raw Keystrokes:** Key down/up events are stored with timestamps, then cleaned into per-key counts.
+- **Movement Coordinates:** Tile coordinates are sampled with timestamps and capped before persistence to keep the stored telemetry compact.
+- **Zone Dwell Time:** Time is accumulated for map zones such as spawn, center, exit, hazard, treasure, and slow-terrain zones.
 - **Path Straightness:** The ratio of direct displacement to the actual distance traveled.
 - **Exploration Rate:** The number of unique grid tiles visited versus the total grid size.
 - **Stealth & Hiding:** Time spent in stealth states (e.g. using items like Ghost Cloak) or lingering in safe zones.
@@ -23,10 +27,16 @@ The game engine supports map-specific physical boundaries that act as the exit t
 - **Battleground 1 (`grinmap.json`):** The rightmost edge of the map (the wooden gates).
 - **Battleground 2 (`grinmap2.json`):** The bottom edge of the map (the golden line).
 
-When the player steps on these boundaries, the game registers that the floor is cleared and triggers `finalizeLearning()`.
+When the player steps on these boundaries or the marked exit tile, the round ends immediately and triggers `finalizeLearning()`. Defeating enemies is no longer required for completion; combat is now pressure during the route to the exit.
 
 ## 4. Preprocessing and Classification
-The raw telemetry is processed in the `classifyPlaystyle()` function (located in `GeneticAlgorithm.ts`). It computes a score for five distinct labels:
+The raw telemetry is cleaned before classification:
+- Duplicate-long telemetry is capped to recent samples so persisted runs stay lightweight.
+- Key events become `keystrokeCounts`.
+- Zone timers produce a `dominantZone`.
+- Movement coordinates are converted into average speed, path straightness, and exploration rate.
+
+The processed profile is then passed to `classifyPlaystyle()` (located in `GeneticAlgorithm.ts`). It computes a score for five distinct labels:
 - `rusher`: High speed, straight paths, low stealth.
 - `stayer`: High stealth duration, high hiding frequency.
 - `explorer`: High exploration rate (unique tiles), non-straight paths.

@@ -40,22 +40,24 @@ function App() {
       {renderScreen()}
       
       {/* Global Music Toggle Button */}
-      <button 
-        className="btn btn-pixel"
-        style={{
-          position: 'fixed',
-          top: '16px',
-          right: '16px',
-          zIndex: 9999,
-          padding: '8px 16px',
-          fontSize: '0.75rem',
-          letterSpacing: '2px',
-          textTransform: 'uppercase'
-        }}
-        onClick={toggleMusic}
-      >
-        {musicEnabled ? '♪ MUSIC: ON' : '♪ MUSIC: OFF'}
-      </button>
+      {currentScreen === 'mainMenu' && (
+        <button 
+          className="btn btn-pixel"
+          style={{
+            position: 'absolute',
+            bottom: '16px',
+            right: '16px',
+            zIndex: 9999,
+            padding: '8px 16px',
+            fontSize: '0.75rem',
+            letterSpacing: '2px',
+            textTransform: 'uppercase'
+          }}
+          onClick={toggleMusic}
+        >
+          {musicEnabled ? '♪ MUSIC: ON' : '♪ MUSIC: OFF'}
+        </button>
+      )}
     </>
   );
 }

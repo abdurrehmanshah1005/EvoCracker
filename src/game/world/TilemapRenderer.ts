@@ -703,7 +703,7 @@ export function drawDebugOverlays(
   for (const enemy of enemies) {
     if (!enemy.isAlive) continue;
 
-    const algoColor = ALGORITHM_COLORS[enemy.getActiveAlgorithm()];
+    const algoColor = ALGORITHM_COLORS[enemy.currentAlgorithm];
 
     const alertColors: Record<string, number> = {
       [AlertState.IDLE]: 0x44dd44,

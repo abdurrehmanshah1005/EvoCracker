@@ -3,9 +3,10 @@ import type { Item } from '@game/entities/items/ItemSystem';
 
 interface PlayerHUDProps {
   items?: Item[];
+  sprintEnergy?: number;
 }
 
-export function PlayerHUD({ items = [] }: PlayerHUDProps) {
+export function PlayerHUD({ items = [], sprintEnergy = 1 }: PlayerHUDProps) {
   const {
     playerHealth, playerMaxHealth, playerScore,
     currentFloor, currentBiome, fps,
@@ -29,6 +30,17 @@ export function PlayerHUD({ items = [] }: PlayerHUDProps) {
             />
           </div>
           <span className="hud-bar-value">{playerHealth}/{playerMaxHealth}</span>
+        </div>
+
+        <div className="hud-bar">
+          <span className="hud-bar-label" style={{ color: 'var(--cyan)' }}>SP</span>
+          <div className="hud-bar-track">
+            <div
+              className="hud-bar-fill sprint"
+              style={{ width: `${Math.round(sprintEnergy * 100)}%` }}
+            />
+          </div>
+          <span className="hud-bar-value">{Math.round(sprintEnergy * 100)}%</span>
         </div>
 
         {/* Floor info */}
@@ -70,7 +82,7 @@ export function PlayerHUD({ items = [] }: PlayerHUDProps) {
         </div>
 
         <div className="hud-info" style={{ opacity: 0.4, fontSize: '0.5rem', position: 'fixed', bottom: '0px', right: '0px', padding: '10px' }}>
-          WASD: Move &nbsp; 1-4: Items
+          WASD: Move &nbsp; Shift: Sprint &nbsp; 1-4: Items
         </div>
       </div>
     </div>

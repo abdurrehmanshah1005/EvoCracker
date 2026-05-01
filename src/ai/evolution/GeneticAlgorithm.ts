@@ -82,7 +82,40 @@ export function getPreferredAlgorithm(genome: Genome): AlgorithmType {
   return best;
 }
 
+/** Sample an algorithm from genome weights so evolution remains visible without collapsing to one choice. */
+export function sampleAlgorithmFromGenome(genome: Genome, explorationRate = 0.08): AlgorithmType {
+  const types = Object.keys(genome.algorithmWeights) as AlgorithmType[];
+  if (types.length === 0) return AlgorithmType.BFS;
+
+  if (Math.random() < explorationRate) {
+    return types[randomInt(0, types.length - 1)];
+  }
+
+  const totalWeight = types.reduce((sum, type) => sum + Math.max(0.01, genome.algorithmWeights[type] ?? 0), 0);
+  let spin = Math.random() * totalWeight;
+
+  for (const type of types) {
+    spin -= Math.max(0.01, genome.algorithmWeights[type] ?? 0);
+    if (spin <= 0) return type;
+  }
+
+  return getPreferredAlgorithm(genome);
+}
+
 // --- Player Profile (drives fitness evaluation) ---
+export interface RawKeystroke {
+  code: string;
+  key: string;
+  type: 'down' | 'up';
+  t: number;
+}
+
+export interface MovementCoordinate {
+  x: number;
+  y: number;
+  t: number;
+}
+
 export interface PlayerProfile {
   averageSpeed: number;
   pathStraightness: number;
@@ -103,6 +136,15 @@ export interface PlayerProfile {
   totalTiles: number;
   timeSpentHiding: number;
   timeSpentMoving: number;
+
+  rawKeystrokes: RawKeystroke[];
+  movementCoordinates: MovementCoordinate[];
+  timeSpentInZones: Record<string, number>;
+  cleanedTelemetry: {
+    keystrokeCounts: Record<string, number>;
+    dominantZone: string;
+    totalSamples: number;
+  };
 }
 
 export function createPlayerProfile(): PlayerProfile {
@@ -112,6 +154,14 @@ export function createPlayerProfile(): PlayerProfile {
     engagementRate: 0, fleeFrequency: 0, playstyle: 'hybrid',
     totalMoves: 0, totalHides: 0, totalFights: 0, totalFlees: 0,
     tilesExplored: 0, totalTiles: 1, timeSpentHiding: 0, timeSpentMoving: 0,
+    rawKeystrokes: [],
+    movementCoordinates: [],
+    timeSpentInZones: {},
+    cleanedTelemetry: {
+      keystrokeCounts: {},
+      dominantZone: 'unknown',
+      totalSamples: 0,
+    },
   };
 }
 

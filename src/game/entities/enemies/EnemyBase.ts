@@ -15,7 +15,7 @@ import {
   createBlackboard, type Blackboard,
 } from '@ai/behavior/BehaviorTree';
 import { BTStatus } from '@utils/constants';
-import { createRandomGenome, getPreferredAlgorithm, type Genome } from '@ai/evolution/GeneticAlgorithm';
+import { createRandomGenome, sampleAlgorithmFromGenome, type Genome } from '@ai/evolution/GeneticAlgorithm';
 import { PathfindingClient } from '@ai/worker/PathfindingClient';
 import type { Grid } from '@ai/pathfinding/Grid';
 import { lerp } from '@utils/math';
@@ -287,6 +287,7 @@ export class EnemyBase {
     this.pathRequestPending = true;
 
     const algo = this.isJammed ? AlgorithmType.DFS : this.getActiveAlgorithm();
+    this.currentAlgorithm = algo;
 
     try {
       const result = await PathfindingClient.getInstance().requestPath({
@@ -333,7 +334,7 @@ export class EnemyBase {
       case AlertState.SUSPICIOUS: return AlgorithmType.BFS;
       case AlertState.CHASING:
       case AlertState.ALERT:
-        return getPreferredAlgorithm(this.genome);
+        return sampleAlgorithmFromGenome(this.genome);
       default:
         return ENEMY_DEFAULT_ALGORITHM[this.type];
     }
@@ -416,16 +417,39 @@ export class EnemyBase {
     return {
       entityId: this.entityId,
       enemyType: this.type,
-      algorithm: this.getActiveAlgorithm(),
+      algorithm: this.currentAlgorithm,
       alertState: this.alertState,
       genomeId: this.genome.id,
       generation: this.genome.generation,
+      fitness: this.genome.fitness,
+      health: this.health,
+      maxHealth: this.maxHealth,
+      speed: this.speed,
+      visionRange: this.visionRange,
+      attackDamage: this.attackDamage,
       speedGene: this.genome.speed,
       visionGene: this.genome.vision,
       aggressionGene: this.genome.aggression,
+      persistenceGene: this.genome.persistence,
+      cautiousnessGene: this.genome.cautiousness,
+      packTendencyGene: this.genome.packTendency,
+      ambushTendencyGene: this.genome.ambushTendency,
+      patrolVarianceGene: this.genome.patrolVariance,
       nodesExpanded: this.nodesExpanded,
       pathLength: this.currentPath.length,
+      pathIndex: this.pathIndex,
+      pathProgress: this.currentPath.length > 0
+        ? Math.min(1, this.pathIndex / this.currentPath.length)
+        : 1,
       pathComputeTimeMs: this.pathComputeTimeMs,
+      pathRequestPending: this.pathRequestPending,
+      target: this.lastPathTarget,
+      timePlayerVisible: this.performance.timePlayerVisible,
+      damageDealt: this.performance.damageDealt,
+      playerDetections: this.performance.playerDetections,
+      survivalTime: this.performance.survivalTime,
+      areaCovered: this.performance.tilesVisited.size,
+      timeStuck: this.performance.timeStuck,
       position: { x: this.tileX, y: this.tileY },
     };
   }

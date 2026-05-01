@@ -36,6 +36,10 @@ function depthLimitedSearch(
       neighbor.depth = node.depth + 1;
       neighbor.g = node.g + 1;
 
+      // Anti-freeze: throw or abort if we expand too much
+      // For a simple implementation, if counter.expanded > 20000 we stop to prevent freezing
+      if (counter.expanded > 20000) return 'cutoff';
+
       const result = depthLimitedSearch(grid, neighbor, goalX, goalY, limit, expansionOrder, counter);
 
       if (result === 'found') return 'found';

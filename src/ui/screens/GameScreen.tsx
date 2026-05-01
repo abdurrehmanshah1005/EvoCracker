@@ -5,14 +5,14 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { Application, Container, Graphics, Text, TextStyle, Sprite, AnimatedSprite } from 'pixi.js';
-import { useGameStore } from '@store/gameStore';
+import { useGameStore, type IterationProofData } from '@store/gameStore';
 import { InputManager } from '@core/InputManager';
 import { Camera } from '@core/Camera';
 import { Grid } from '@ai/pathfinding/Grid';
 import { PathfindingClient } from '@ai/worker/PathfindingClient';
 import { SupabaseService } from '@services/SupabaseService';
 import { generateDungeon, getBiomeForFloor, type TiledLayerData } from '@game/world/DungeonGenerator';
-import { TILE_SIZE, TileType, GRID_COLS, GRID_ROWS, ALGORITHM_COLORS, AlertState, EnemyType } from '@utils/constants';
+import { TILE_SIZE, TileType, GRID_COLS, GRID_ROWS, ALGORITHM_COLORS, AlertState, EnemyType, AlgorithmType } from '@utils/constants';
 import { AIAnalyticsPanel } from '@ui/analytics/AIAnalyticsPanel';
 import { PlayerHUD } from '@ui/hud/PlayerHUD';
 import { createPlayerSprite, initSpriteAssets, CHARACTER_DEFS, createCharacterEnemySprite } from '@core/SpriteFactory';
@@ -25,6 +25,7 @@ import {
   classifyPlaystyle,
   calculateFitness,
   evolvePopulation,
+  getPreferredAlgorithm,
   type Genome,
   type PlayerProfile,
 } from '@ai/evolution/GeneticAlgorithm';
@@ -50,6 +51,60 @@ const LARGE_MAP_CAMERA_ZOOM = 0.82;
 const LARGE_MAP_CHARACTER_SCALE = 1.08;
 const LARGE_MAP_PLAYER_SPEED_MULTIPLIER = 1.12;
 const LARGE_MAP_ENEMY_SPEED_MULTIPLIER = 1.08;
+const CALIBRATION_PLAYER_SPEED_MULTIPLIER = 1.45;
+const SPRINT_SPEED_MULTIPLIER = 1.55;
+const SPRINT_DRAIN_PER_SECOND = 0.34;
+const SPRINT_RECHARGE_DELAY_SECONDS = 30;
+
+const PROOF_GENE_KEYS = [
+  'speed',
+  'vision',
+  'aggression',
+  'persistence',
+  'cautiousness',
+  'packTendency',
+  'ambushTendency',
+  'patrolVariance',
+] as const;
+
+function averageGenomeGenes(genomes: Genome[]): Record<string, number> {
+  const averages: Record<string, number> = {};
+  for (const gene of PROOF_GENE_KEYS) {
+    averages[gene] = genomes.length
+      ? genomes.reduce((sum, genome) => sum + genome[gene], 0) / genomes.length
+      : 0;
+  }
+  return averages;
+}
+
+function averageGenomeFitness(genomes: Genome[]): number {
+  return genomes.length
+    ? genomes.reduce((sum, genome) => sum + (genome.fitness || 0), 0) / genomes.length
+    : 0;
+}
+
+function calculateStrengthIndex(genes: Record<string, number>, difficulty: number): number {
+  const geneScore =
+    (genes.speed || 0) * 20
+    + (genes.vision || 0) * 18
+    + (genes.aggression || 0) * 18
+    + (genes.persistence || 0) * 16
+    + (genes.cautiousness || 0) * 10
+    + (genes.packTendency || 0) * 8
+    + (genes.ambushTendency || 0) * 5
+    + (genes.patrolVariance || 0) * 5;
+
+  return geneScore * Math.max(1, difficulty);
+}
+
+function averageEnemyMetric(enemies: EnemyBase[], read: (enemy: EnemyBase) => number): number {
+  return enemies.length ? enemies.reduce((sum, enemy) => sum + read(enemy), 0) / enemies.length : 0;
+}
+
+function enemyTypeForCharacterName(name: string): EnemyType | null {
+  const normalized = name.toLowerCase();
+  return (Object.values(EnemyType).find((type) => type.toLowerCase() === normalized) as EnemyType | undefined) ?? null;
+}
 
 // ===== TILE COLORS — High contrast ==========================
 const TILE_COLORS: Record<number, number> = {
@@ -114,12 +169,17 @@ export function GameScreen() {
   const generationRef = useRef(0);
   const playerVelocityRef = useRef({ x: 0, y: 0 });
   const prevPlayerTileRef = useRef({ x: 0, y: 0 });
+  const sprintEnergyRef = useRef(1);
+  const sprintRechargeTimerRef = useRef(0);
+  const sprintHudTimerRef = useRef(0);
   const runStartTimeRef = useRef(0);
   const learningCommittedRef = useRef(false);
   const playerProfileRef = useRef<PlayerProfile>(createPlayerProfile());
   const runTrackerRef = useRef({
     path: [] as { x: number; y: number; t: number }[],
+    keystrokes: [] as { code: string; key: string; type: 'down' | 'up'; t: number }[],
     visited: new Set<string>(),
+    zoneTime: {} as Record<string, number>,
     attacks: 0,
     itemsUsed: 0,
     kills: 0,
@@ -134,6 +194,7 @@ export function GameScreen() {
   const [notification, setNotification] = useState<string | null>(null);
   const [isDead, setIsDead] = useState(false);
   const [showCalibrationLoading, setShowCalibrationLoading] = useState(false);
+  const [sprintEnergy, setSprintEnergy] = useState(1);
   const notifTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Player state ref
@@ -228,6 +289,10 @@ export function GameScreen() {
     setIsDead(false);
     playerVelocityRef.current = { x: 0, y: 0 };
     prevPlayerTileRef.current = { x: 0, y: 0 };
+    sprintEnergyRef.current = 1;
+    sprintRechargeTimerRef.current = 0;
+    sprintHudTimerRef.current = 0;
+    setSprintEnergy(1);
     runStartTimeRef.current = performance.now();
     learningCommittedRef.current = false;
     intelligenceRunRef.current = iteration;
@@ -235,7 +300,9 @@ export function GameScreen() {
     playerProfileRef.current = createPlayerProfile();
     runTrackerRef.current = {
       path: [],
+      keystrokes: [],
       visited: new Set<string>(),
+      zoneTime: {},
       attacks: 0,
       itemsUsed: 0,
       kills: 0,
@@ -351,6 +418,20 @@ export function GameScreen() {
       markWaveSpearChunkNearExit(tilemapAnimRuntime, dungeon.exitPoint.x, dungeon.exitPoint.y, currentDifficulty);
       renderMarkers(worldContainer, dungeon);
 
+      const getTelemetryZone = (tileX: number, tileY: number): string => {
+        const tile = dungeon.tiles[tileY]?.[tileX];
+        if (tile === TileType.FLOOR_TRAP) return 'hazard';
+        if (tile === TileType.TREASURE) return 'treasure';
+        if (tile === TileType.FLOOR_WATER || tile === TileType.FLOOR_MUD) return 'slowTerrain';
+        if (Math.abs(tileX - dungeon.exitPoint.x) + Math.abs(tileY - dungeon.exitPoint.y) <= 5) return 'exitZone';
+        if (Math.abs(tileX - dungeon.spawnPoint.x) + Math.abs(tileY - dungeon.spawnPoint.y) <= 5) return 'spawnZone';
+        if (tileX < dungeon.width / 3) return 'west';
+        if (tileX > dungeon.width * 2 / 3) return 'east';
+        if (tileY < dungeon.height / 3) return 'north';
+        if (tileY > dungeon.height * 2 / 3) return 'south';
+        return 'center';
+      };
+
       // ── Player ────────────────────────────────────────────────────
       const playerSprite = createPlayerSprite(selectedCharacter);
       if (isLargeMap) {
@@ -390,6 +471,14 @@ export function GameScreen() {
         .filter((i) => i !== selectedCharacter);
 
       const enemyTypes = getEnemyTypesForFloor(currentFloor);
+      const characterEnemyOptions = otherCharIndices
+        .map((characterIndex) => ({
+          characterIndex,
+          enemyType: enemyTypeForCharacterName(CHARACTER_DEFS[characterIndex].name),
+        }))
+        .filter((option): option is { characterIndex: number; enemyType: EnemyType } =>
+          option.enemyType !== null && enemyTypes.includes(option.enemyType)
+        );
       const isCalibrationRound = currentFloor === 1 && intelligenceRunRef.current === 1;
 
       const baseEnemyCap = TEMP_EASY_GA_TEST_MODE
@@ -442,10 +531,9 @@ export function GameScreen() {
 
       // Spawn character-based enemies first (one per remaining character)
       let spawnIdx = 0;
-      for (let ci = 0; ci < otherCharIndices.length && spawnIdx < spawnPts.length; ci++, spawnIdx++) {
+      for (let ci = 0; ci < characterEnemyOptions.length && spawnIdx < spawnPts.length; ci++, spawnIdx++) {
         const pt = spawnPts[spawnIdx];
-        const charIndex = otherCharIndices[ci];
-        const type = enemyTypes[randomInt(0, enemyTypes.length - 1)];
+        const { characterIndex: charIndex, enemyType: type } = characterEnemyOptions[ci];
         const genome = nextGenome(spawnIdx);
         const enemy = createEnemy(type, pt.x, pt.y, genome);
         enemy.applyDifficulty(currentDifficulty);
@@ -503,15 +591,26 @@ export function GameScreen() {
         const path = runTrackerRef.current.path;
         const uniqueTiles = runTrackerRef.current.visited.size;
         const totalTiles = dungeon.width * dungeon.height;
+        const keystrokeCounts = runTrackerRef.current.keystrokes.reduce<Record<string, number>>((counts, event) => {
+          if (event.type === 'down') counts[event.code] = (counts[event.code] ?? 0) + 1;
+          return counts;
+        }, {});
+        const zoneEntries = Object.entries(runTrackerRef.current.zoneTime);
+        const dominantZone = zoneEntries.length > 0
+          ? zoneEntries.reduce((best, entry) => entry[1] > best[1] ? entry : best)[0]
+          : 'unknown';
 
         const start = path[0] ?? { x: playerRef.current.tileX, y: playerRef.current.tileY };
         const end = path[path.length - 1] ?? start;
         const displacement = Math.hypot(end.x - start.x, end.y - start.y);
-        const traveled = Math.max(1, path.length - 1);
+        const traveled = Math.max(1, path.slice(1).reduce((distance, point, index) => {
+          const prev = path[index];
+          return distance + Math.hypot(point.x - prev.x, point.y - prev.y);
+        }, 0));
 
         profile.totalTiles = totalTiles;
         profile.tilesExplored = uniqueTiles;
-        profile.averageSpeed = Math.min(1, profile.timeSpentMoving / runDuration);
+        profile.averageSpeed = Math.min(1, traveled / Math.max(1, runDuration) / 8);
         profile.explorationRate = uniqueTiles / Math.max(1, totalTiles);
         profile.hidingFrequency = profile.totalHides / Math.max(1, runDuration);
         profile.averageHideDuration = profile.timeSpentHiding / Math.max(1, profile.totalHides);
@@ -519,6 +618,14 @@ export function GameScreen() {
         profile.fleeFrequency = profile.totalFlees / Math.max(1, runDuration);
         profile.stealthToRushRatio = Math.min(1, profile.timeSpentHiding / Math.max(1, profile.timeSpentHiding + profile.timeSpentMoving));
         profile.pathStraightness = Math.min(1, displacement / traveled);
+        profile.rawKeystrokes = runTrackerRef.current.keystrokes.slice(-500);
+        profile.movementCoordinates = path.slice(-500);
+        profile.timeSpentInZones = { ...runTrackerRef.current.zoneTime };
+        profile.cleanedTelemetry = {
+          keystrokeCounts,
+          dominantZone,
+          totalSamples: path.length + runTrackerRef.current.keystrokes.length,
+        };
         profile.playstyle = classifyPlaystyle(profile);
 
         const trainingPool = allSpawnedEnemiesRef.current.filter((e) => e.genome);
@@ -545,6 +652,45 @@ export function GameScreen() {
 
         const pressure = Math.min(1, stats.avgFitness / 80);
         const nextDifficulty = Math.min(3, Math.max(1, currentDifficulty + 0.08 + pressure * 0.22));
+        const beforeGenes = averageGenomeGenes(sourcePopulation);
+        const afterGenes = averageGenomeGenes(newPopulation);
+        const roundFitnesses = sourcePopulation.map((genome) => genome.fitness || 0);
+        const algorithmDistribution = Object.fromEntries(
+          Object.values(AlgorithmType).map((algorithm) => [algorithm, 0])
+        ) as Record<AlgorithmType, number>;
+        for (const genome of newPopulation) {
+          const algorithm = getPreferredAlgorithm(genome);
+          algorithmDistribution[algorithm] += 1;
+        }
+        const proof: Omit<IterationProofData, 'timestamp'> = {
+          iteration,
+          floorReached: currentFloor,
+          generationBefore: Math.max(0, stats.generation - 1),
+          generationAfter: stats.generation,
+          result,
+          score: useGameStore.getState().playerScore,
+          enemyCount: trainingPool.length,
+          playstyle: profile.playstyle,
+          difficultyBefore: currentDifficulty,
+          difficultyAfter: nextDifficulty,
+          beforeStrengthIndex: calculateStrengthIndex(beforeGenes, currentDifficulty),
+          afterStrengthIndex: calculateStrengthIndex(afterGenes, nextDifficulty),
+          beforeAvgFitness: averageGenomeFitness(sourcePopulation),
+          roundAvgFitness: roundFitnesses.length
+            ? roundFitnesses.reduce((sum, fitness) => sum + fitness, 0) / roundFitnesses.length
+            : 0,
+          roundMaxFitness: roundFitnesses.length ? Math.max(...roundFitnesses) : 0,
+          beforeGenes,
+          afterGenes,
+          avgPathTimeMs: averageEnemyMetric(trainingPool, (enemy) => enemy.pathComputeTimeMs),
+          avgNodesExpanded: averageEnemyMetric(trainingPool, (enemy) => enemy.nodesExpanded),
+          avgDamageDealt: averageEnemyMetric(trainingPool, (enemy) => enemy.performance.damageDealt),
+          avgDetections: averageEnemyMetric(trainingPool, (enemy) => enemy.performance.playerDetections),
+          avgSurvivalTime: averageEnemyMetric(trainingPool, (enemy) => enemy.performance.survivalTime),
+          avgAreaCovered: averageEnemyMetric(trainingPool, (enemy) => enemy.performance.tilesVisited.size),
+          dominantAlgorithm: stats.dominantAlgorithm,
+          algorithmDistribution,
+        };
 
         storeActionsRef.current.completeIterationLearning({
           run: {
@@ -553,6 +699,8 @@ export function GameScreen() {
             score: useGameStore.getState().playerScore,
             result,
             path,
+            keystrokes: runTrackerRef.current.keystrokes.slice(-500),
+            timeSpentInZones: { ...runTrackerRef.current.zoneTime },
             uniqueTilesVisited: uniqueTiles,
             actions: {
               attacks: runTrackerRef.current.attacks,
@@ -567,6 +715,7 @@ export function GameScreen() {
           evolvedPopulation: newPopulation,
           stats,
           nextDifficulty,
+          proof,
         });
 
         // --- Supabase Integration ---
@@ -679,14 +828,52 @@ export function GameScreen() {
         }
 
         // ── PLAYER MOVEMENT ───────────────────────────────────────
+        const inputState = input.getState();
+        const elapsedMsForTelemetry = performance.now() - runTrackerRef.current.startTs;
+        for (const code of inputState.codesJustPressed) {
+          runTrackerRef.current.keystrokes.push({ code, key: code, type: 'down', t: elapsedMsForTelemetry });
+        }
+        for (const code of inputState.codesJustReleased) {
+          runTrackerRef.current.keystrokes.push({ code, key: code, type: 'up', t: elapsedMsForTelemetry });
+        }
+        if (runTrackerRef.current.keystrokes.length > 1000) {
+          runTrackerRef.current.keystrokes.splice(0, runTrackerRef.current.keystrokes.length - 1000);
+        }
+
+        const zone = getTelemetryZone(p.tileX, p.tileY);
+        runTrackerRef.current.zoneTime[zone] = (runTrackerRef.current.zoneTime[zone] ?? 0) + dtSeconds;
+
         const moveVec = input.getMovementVector();
         const moveX = moveVec.x;
         const moveY = moveVec.y;
-        const basePlayerMoveSpeed = (TEMP_EASY_GA_TEST_MODE ? EASY_PLAYER_MOVE_SPEED : 160)
-          * (isLargeMap ? LARGE_MAP_PLAYER_SPEED_MULTIPLIER : 1);
-        const moveSpeed = (p.state.isInvisible ? basePlayerMoveSpeed + 40 : basePlayerMoveSpeed) * dtSeconds;
+        const isMoving = moveX !== 0 || moveY !== 0;
+        const wantsSprint = input.isCodeDown('ShiftLeft') || input.isCodeDown('ShiftRight');
+        const canSprint = isMoving && wantsSprint && sprintEnergyRef.current > 0 && sprintRechargeTimerRef.current <= 0;
+        if (canSprint) {
+          sprintEnergyRef.current = Math.max(0, sprintEnergyRef.current - SPRINT_DRAIN_PER_SECOND * dtSeconds);
+          if (sprintEnergyRef.current <= 0) {
+            sprintRechargeTimerRef.current = SPRINT_RECHARGE_DELAY_SECONDS;
+          }
+        } else if (sprintRechargeTimerRef.current > 0) {
+          sprintRechargeTimerRef.current = Math.max(0, sprintRechargeTimerRef.current - dtSeconds);
+          if (sprintRechargeTimerRef.current <= 0) {
+            sprintEnergyRef.current = 1;
+          }
+        }
+        sprintHudTimerRef.current += dtSeconds;
+        if (sprintHudTimerRef.current >= 0.08) {
+          sprintHudTimerRef.current = 0;
+          setSprintEnergy(sprintEnergyRef.current);
+        }
 
-        if (moveX !== 0 || moveY !== 0) {
+        const calibrationSpeedBoost = isCalibrationRound ? CALIBRATION_PLAYER_SPEED_MULTIPLIER : 1;
+        const basePlayerMoveSpeed = (TEMP_EASY_GA_TEST_MODE ? EASY_PLAYER_MOVE_SPEED : 160)
+          * (isLargeMap ? LARGE_MAP_PLAYER_SPEED_MULTIPLIER : 1)
+          * calibrationSpeedBoost;
+        const sprintBoost = canSprint ? SPRINT_SPEED_MULTIPLIER : 1;
+        const moveSpeed = (p.state.isInvisible ? basePlayerMoveSpeed + 40 : basePlayerMoveSpeed) * sprintBoost * dtSeconds;
+
+        if (isMoving) {
           const nextX = p.pixelX + moveX * moveSpeed;
           const nextY = p.pixelY + moveY * moveSpeed;
 
@@ -930,7 +1117,7 @@ export function GameScreen() {
         // ── CHECK FLOOR COMPLETE ───────────────────────────────────
         if (isLoadedRef.current && enemiesRef.current.length === 0 && spawnPts.length > 0 && !floorClearedRef.current) {
           floorClearedRef.current = true;
-          showNotification(`✅ Floor ${dungeon.floor} cleared! Find the exit (green glow)`);
+          showNotification(`Exit is open. Reach the green glow to finish the round.`);
         }
 
         // ── EXIT / PROGRESSION ────────────────────────────────────
@@ -944,7 +1131,6 @@ export function GameScreen() {
         atExit = atExit || (p.tileX === dungeon.exitPoint.x && p.tileY === dungeon.exitPoint.y);
 
         if (
-          floorClearedRef.current &&
           !floorAdvancePendingRef.current &&
           atExit
         ) {
@@ -1102,7 +1288,7 @@ export function GameScreen() {
     <div className="game-screen">
       <div ref={canvasRef} className="game-canvas-wrapper" />
 
-      {isLoaded && <PlayerHUD items={playerRef.current.items} />}
+      {isLoaded && <PlayerHUD items={playerRef.current.items} sprintEnergy={sprintEnergy} />}
 
       {showCalibrationLoading && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 150, background: 'rgba(0,0,0,0.9)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
@@ -1129,6 +1315,7 @@ export function GameScreen() {
           border: '1px solid rgba(200,168,80,0.15)',
         }}>
           <span style={{ color: '#44ddff' }}>WASD</span> Move &nbsp;
+          <span style={{ color: '#44ddff' }}>Shift</span> Sprint &nbsp;
           <span style={{ color: '#ff4466' }}>Space</span> Attack &nbsp;
           <span style={{ color: '#ffd700' }}>1-4</span> Items &nbsp;
           <span style={{ color: '#aa66ff' }}>`</span> AI Panel &nbsp;

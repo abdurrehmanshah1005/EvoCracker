@@ -28,15 +28,76 @@ export interface EnemyAnalyticsData {
   algorithm: AlgorithmType;
   alertState: AlertState;
   genomeId: string;
+  generation: number;
+  fitness: number;
+  health: number;
+  maxHealth: number;
+  speed: number;
+  visionRange: number;
+  attackDamage: number;
+  speedGene: number;
+  visionGene: number;
+  aggressionGene: number;
+  persistenceGene: number;
+  cautiousnessGene: number;
+  packTendencyGene: number;
+  ambushTendencyGene: number;
+  patrolVarianceGene: number;
   nodesExpanded: number;
   pathLength: number;
+  pathIndex: number;
+  pathProgress: number;
   pathComputeTimeMs: number;
+  pathRequestPending: boolean;
+  target: { x: number; y: number } | null;
+  timePlayerVisible: number;
+  damageDealt: number;
+  playerDetections: number;
+  survivalTime: number;
+  areaCovered: number;
+  timeStuck: number;
   position: { x: number; y: number };
+}
+
+export interface IterationProofData {
+  iteration: number;
+  floorReached: number;
+  generationBefore: number;
+  generationAfter: number;
+  result: PlayerStrategyRun['result'];
+  score: number;
+  enemyCount: number;
+  timestamp: number;
+  playstyle: PlayerProfile['playstyle'];
+  difficultyBefore: number;
+  difficultyAfter: number;
+  beforeStrengthIndex: number;
+  afterStrengthIndex: number;
+  beforeAvgFitness: number;
+  roundAvgFitness: number;
+  roundMaxFitness: number;
+  beforeGenes: Record<string, number>;
+  afterGenes: Record<string, number>;
+  avgPathTimeMs: number;
+  avgNodesExpanded: number;
+  avgDamageDealt: number;
+  avgDetections: number;
+  avgSurvivalTime: number;
+  avgAreaCovered: number;
+  dominantAlgorithm: AlgorithmType;
+  algorithmDistribution: Record<AlgorithmType, number>;
 }
 
 export interface PlayerPathPoint {
   x: number;
   y: number;
+  t: number;
+}
+
+export interface PlayerKeystroke {
+  code: string;
+  key: string;
+  type: 'down' | 'up';
   t: number;
 }
 
@@ -46,6 +107,8 @@ export interface PlayerStrategyRun {
   score: number;
   result: 'died' | 'manualExit' | 'floorClear';
   path: PlayerPathPoint[];
+  keystrokes: PlayerKeystroke[];
+  timeSpentInZones: Record<string, number>;
   uniqueTilesVisited: number;
   actions: {
     attacks: number;
@@ -64,6 +127,7 @@ export interface IterationLearningPayload {
   evolvedPopulation: Genome[];
   stats: GenerationStats;
   nextDifficulty: number;
+  proof: Omit<IterationProofData, 'timestamp'>;
 }
 
 export interface MapInfo {
@@ -120,10 +184,13 @@ interface GameState {
   baseDifficulty: number;
   currentDifficulty: number;
   playerRuns: PlayerStrategyRun[];
+  iterationProofHistory: IterationProofData[];
+  autoShowIterationGraphs: boolean;
   setPopulation: (pop: Genome[]) => void;
   setPlayerProfile: (profile: PlayerProfile) => void;
   addGenerationStats: (stats: GenerationStats) => void;
   completeIterationLearning: (payload: IterationLearningPayload) => void;
+  toggleAutoShowIterationGraphs: () => void;
   resetLearning: () => void;
 
   // Analytics
@@ -211,6 +278,8 @@ export const useGameStore = create<GameState>()(
       baseDifficulty: 1,
       currentDifficulty: 1,
       playerRuns: [],
+      iterationProofHistory: [],
+      autoShowIterationGraphs: true,
       setPopulation: (pop) => set({ population: pop }),
       setPlayerProfile: (profile) => set({ playerProfile: profile }),
       addGenerationStats: (stats) =>
@@ -218,7 +287,7 @@ export const useGameStore = create<GameState>()(
           generationHistory: [...s.generationHistory, stats],
           generation: stats.generation,
         })),
-      completeIterationLearning: ({ run, profile, evolvedPopulation, stats, nextDifficulty }) =>
+      completeIterationLearning: ({ run, profile, evolvedPopulation, stats, nextDifficulty, proof }) =>
         set((s) => ({
           playerRuns: [...s.playerRuns, { ...run, timestamp: Date.now() }],
           playerProfile: profile,
@@ -227,8 +296,12 @@ export const useGameStore = create<GameState>()(
           generation: stats.generation,
           currentDifficulty: Math.max(s.baseDifficulty, nextDifficulty),
           iteration: s.iteration + 1,
+          iterationProofHistory: [...s.iterationProofHistory, { ...proof, timestamp: Date.now() }],
+          analyticsEnabled: s.autoShowIterationGraphs ? true : s.analyticsEnabled,
+          analyticsTab: s.autoShowIterationGraphs ? 2 : s.analyticsTab,
           isPlaying: false,
         })),
+      toggleAutoShowIterationGraphs: () => set((s) => ({ autoShowIterationGraphs: !s.autoShowIterationGraphs })),
       resetLearning: () =>
         set((s) => ({
           generation: 0,
@@ -238,6 +311,7 @@ export const useGameStore = create<GameState>()(
           iteration: 1,
           currentDifficulty: s.baseDifficulty,
           playerRuns: [],
+          iterationProofHistory: [],
         })),
 
       // Analytics
@@ -276,6 +350,7 @@ export const useGameStore = create<GameState>()(
           iteration: 1,
           currentDifficulty: 1,
           playerRuns: [],
+          iterationProofHistory: [],
           dungeonData: null,
           isPlaying: false,
           isPaused: false,
@@ -306,6 +381,8 @@ export const useGameStore = create<GameState>()(
         baseDifficulty: state.baseDifficulty,
         currentDifficulty: state.currentDifficulty,
         playerRuns: state.playerRuns,
+        iterationProofHistory: state.iterationProofHistory,
+        autoShowIterationGraphs: state.autoShowIterationGraphs,
         musicEnabled: state.musicEnabled,
         currentTrack: state.currentTrack,
       }),

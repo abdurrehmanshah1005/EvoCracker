@@ -4,7 +4,7 @@
 // ========================
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useGameStore } from '@store/gameStore';
+import { useGameStore, type IterationProofData } from '@store/gameStore';
 import { AlgorithmType } from '@utils/constants';
 import { getAlgorithmInfo } from '@ai/pathfinding/AlgorithmRegistry';
 import { Grid } from '@ai/pathfinding/Grid';
@@ -26,6 +26,28 @@ const CELL = 28;
 
 type CellState = 'empty' | 'wall' | 'start' | 'goal';
 type DrawMode = 'wall' | 'erase' | 'start' | 'goal';
+type LabView = 'sandbox' | 'graphs';
+type LabGraphType = 'line' | 'bar' | 'area' | 'radar';
+
+const GRAPH_METRICS: {
+  key: string;
+  label: string;
+  color: string;
+  read: (proof: IterationProofData) => number;
+  suffix?: string;
+}[] = [
+  { key: 'strength', label: 'Enemy Strength', color: '#44dd88', read: (proof) => proof.afterStrengthIndex },
+  { key: 'strengthDelta', label: 'Strength Gain', color: '#88ffaa', read: (proof) => proof.afterStrengthIndex - proof.beforeStrengthIndex },
+  { key: 'fitness', label: 'Avg Fitness', color: '#c8a850', read: (proof) => proof.roundAvgFitness },
+  { key: 'maxFitness', label: 'Max Fitness', color: '#e8d080', read: (proof) => proof.roundMaxFitness },
+  { key: 'difficulty', label: 'Difficulty', color: '#ff8844', read: (proof) => proof.difficultyAfter, suffix: 'x' },
+  { key: 'pathTime', label: 'Path Time', color: '#44ddff', read: (proof) => proof.avgPathTimeMs, suffix: 'ms' },
+  { key: 'nodes', label: 'Nodes Expanded', color: '#4488ff', read: (proof) => proof.avgNodesExpanded },
+  { key: 'damage', label: 'Damage Dealt', color: '#ff4466', read: (proof) => proof.avgDamageDealt },
+  { key: 'detections', label: 'Detections', color: '#aa44ff', read: (proof) => proof.avgDetections },
+  { key: 'survival', label: 'Survival Time', color: '#44dd66', read: (proof) => proof.avgSurvivalTime, suffix: 's' },
+  { key: 'area', label: 'Area Covered', color: '#ffcc00', read: (proof) => proof.avgAreaCovered },
+];
 
 const ALGO_CSS_COLORS: Record<AlgorithmType, string> = {
   [AlgorithmType.BFS]: '#4488ff',
@@ -68,8 +90,294 @@ function makeEmptyCells(): CellState[][] {
 
 const ALL_ALGOS = Object.values(AlgorithmType);
 
+function formatGraphValue(value: number, suffix = ''): string {
+  const decimals = Math.abs(value) >= 100 ? 0 : Math.abs(value) >= 10 ? 1 : 2;
+  return `${value.toFixed(decimals)}${suffix}`;
+}
+
+function getProofSeries(proofHistory: IterationProofData[], metricKey: string): number[] {
+  const metric = GRAPH_METRICS.find((item) => item.key === metricKey) ?? GRAPH_METRICS[0];
+  return proofHistory.map(metric.read);
+}
+
+function MiniMetricGraph({
+  type,
+  values,
+  labels,
+  color,
+  height = 180,
+}: {
+  type: LabGraphType;
+  values: number[];
+  labels: string[];
+  color: string;
+  height?: number;
+}) {
+  const width = 520;
+  const padding = 28;
+  const min = Math.min(0, ...values);
+  const max = Math.max(1, ...values);
+  const span = Math.max(1, max - min);
+  const points = values.map((value, index) => {
+    const x = values.length <= 1
+      ? width / 2
+      : padding + (index / (values.length - 1)) * (width - padding * 2);
+    const y = height - padding - ((value - min) / span) * (height - padding * 2);
+    return { x, y, value, label: labels[index] };
+  });
+  const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+  const areaPath = points.length > 0
+    ? `${path} L ${points[points.length - 1].x} ${height - padding} L ${points[0].x} ${height - padding} Z`
+    : '';
+
+  if (type === 'radar') {
+    const centerX = width / 2;
+    const centerY = height / 2;
+    const radius = Math.min(width, height) * 0.34;
+    const radarMax = Math.max(...values, 1);
+    const radarPoints = values.map((value, index) => {
+      const angle = -Math.PI / 2 + (index / values.length) * Math.PI * 2;
+      const r = (value / radarMax) * radius;
+      return {
+        x: centerX + Math.cos(angle) * r,
+        y: centerY + Math.sin(angle) * r,
+        axisX: centerX + Math.cos(angle) * radius,
+        axisY: centerY + Math.sin(angle) * radius,
+        label: labels[index],
+        value,
+      };
+    });
+    const polygon = radarPoints.map((point) => `${point.x},${point.y}`).join(' ');
+
+    return (
+      <svg className="lab-graph-svg" viewBox={`0 0 ${width} ${height}`} role="img">
+        {[0.25, 0.5, 0.75, 1].map((scale) => (
+          <circle key={scale} cx={centerX} cy={centerY} r={radius * scale} fill="none" stroke="rgba(255,255,255,0.08)" />
+        ))}
+        {radarPoints.map((point, index) => (
+          <g key={`${point.label}-${index}`}>
+            <line x1={centerX} y1={centerY} x2={point.axisX} y2={point.axisY} stroke="rgba(255,255,255,0.08)" />
+            <text x={point.axisX} y={point.axisY} fill="var(--text-muted)" fontSize="9" textAnchor="middle">{point.label}</text>
+          </g>
+        ))}
+        <polygon points={polygon} fill={`${color}45`} stroke={color} strokeWidth="2" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg className="lab-graph-svg" viewBox={`0 0 ${width} ${height}`} role="img">
+      <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} stroke="rgba(255,255,255,0.12)" />
+      <line x1={padding} y1={padding} x2={padding} y2={height - padding} stroke="rgba(255,255,255,0.12)" />
+      {type === 'bar' && points.map((point, index) => {
+        const barWidth = Math.max(12, (width - padding * 2) / Math.max(1, points.length) - 8);
+        const zeroY = height - padding - ((0 - min) / span) * (height - padding * 2);
+        const barTop = Math.min(point.y, zeroY);
+        const barHeight = Math.max(2, Math.abs(zeroY - point.y));
+        return (
+          <rect
+            key={`${point.label}-${index}`}
+            x={point.x - barWidth / 2}
+            y={barTop}
+            width={barWidth}
+            height={barHeight}
+            rx="3"
+            fill={color}
+            opacity="0.82"
+          />
+        );
+      })}
+      {type === 'area' && <path d={areaPath} fill={`${color}35`} stroke="none" />}
+      {(type === 'line' || type === 'area') && <path d={path} fill="none" stroke={color} strokeWidth="3" strokeLinejoin="round" />}
+      {(type === 'line' || type === 'area') && points.map((point, index) => (
+        <circle key={`${point.label}-${index}`} cx={point.x} cy={point.y} r="4" fill={color} />
+      ))}
+      {points.map((point, index) => (
+        <text key={`${point.label}-label-${index}`} x={point.x} y={height - 8} fill="var(--text-muted)" fontSize="9" textAnchor="middle">
+          {point.label.replace('Iter ', 'I')}
+        </text>
+      ))}
+      <text x={padding} y={18} fill="var(--text-muted)" fontSize="10">{formatGraphValue(max)}</text>
+      <text x={padding} y={height - padding - 4} fill="var(--text-muted)" fontSize="10">{formatGraphValue(min)}</text>
+    </svg>
+  );
+}
+
+function LabEnemyGraphs({
+  proofHistory,
+  enemyAnalytics,
+  population,
+  generation,
+  graphType,
+  selectedMetric,
+  onGraphTypeChange,
+  onMetricChange,
+}: {
+  proofHistory: IterationProofData[];
+  enemyAnalytics: ReturnType<typeof useGameStore.getState>['enemyAnalytics'];
+  population: ReturnType<typeof useGameStore.getState>['population'];
+  generation: number;
+  graphType: LabGraphType;
+  selectedMetric: string;
+  onGraphTypeChange: (type: LabGraphType) => void;
+  onMetricChange: (metric: string) => void;
+}) {
+  const selectedGraphMetric = GRAPH_METRICS.find((metric) => metric.key === selectedMetric) ?? GRAPH_METRICS[0];
+  const graphValues = getProofSeries(proofHistory, selectedMetric);
+  const graphLabels = proofHistory.map((proof) => `Iter ${proof.iteration}`);
+  const latestProof = proofHistory[proofHistory.length - 1];
+  const enemyNameCounts = enemyAnalytics.reduce<Record<string, number>>((counts, enemy) => {
+    counts[enemy.enemyType] = (counts[enemy.enemyType] ?? 0) + 1;
+    return counts;
+  }, {});
+  const avgPopulationFitness = population.length
+    ? population.reduce((sum, genome) => sum + (genome.fitness || 0), 0) / population.length
+    : 0;
+
+  return (
+    <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 12, marginBottom: 18 }}>
+        {[
+          ['Completed Iterations', proofHistory.length],
+          ['Current Generation', generation],
+          ['Population', population.length],
+          ['Avg Pop Fitness', avgPopulationFitness.toFixed(1)],
+        ].map(([label, value]) => (
+          <div key={String(label)} className="lab-metric-card">
+            <span>{label}</span>
+            <strong>{String(value)}</strong>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '280px minmax(0, 1fr)', gap: 18 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="lab-card">
+            <div className="lab-card-title">Graph Type</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              {(['line', 'bar', 'area', 'radar'] as LabGraphType[]).map((type) => (
+                <button
+                  key={type}
+                  onClick={() => onGraphTypeChange(type)}
+                  className="lab-chip"
+                  data-active={graphType === type}
+                >
+                  {type}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="lab-card">
+            <div className="lab-card-title">Metric</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {GRAPH_METRICS.map((metric) => (
+                <button
+                  key={metric.key}
+                  onClick={() => onMetricChange(metric.key)}
+                  className="lab-chip"
+                  data-active={selectedMetric === metric.key}
+                  style={{ borderColor: selectedMetric === metric.key ? metric.color : undefined, color: selectedMetric === metric.key ? metric.color : undefined }}
+                >
+                  {metric.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="lab-card">
+            <div className="lab-card-title">Live Enemy Names</div>
+            {Object.keys(enemyNameCounts).length > 0 ? (
+              Object.entries(enemyNameCounts).map(([name, count]) => (
+                <div key={name} className="lab-stat-row">
+                  <span>{name}</span>
+                  <strong>{count}</strong>
+                </div>
+              ))
+            ) : (
+              <p className="lab-muted">Start a game floor to see the exact spawned enemies here.</p>
+            )}
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          <div className="lab-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+              <div>
+                <div className="lab-card-title">{selectedGraphMetric.label}</div>
+                <div className="lab-muted">Real values captured after each completed iteration</div>
+              </div>
+              <div style={{ color: selectedGraphMetric.color, fontFamily: 'var(--font-pixel)', fontSize: '0.55rem', textTransform: 'uppercase' }}>
+                {graphType} graph
+              </div>
+            </div>
+            {proofHistory.length > 0 ? (
+              <MiniMetricGraph
+                type={graphType}
+                values={graphValues}
+                labels={graphLabels}
+                color={selectedGraphMetric.color}
+                height={230}
+              />
+            ) : (
+              <div className="lab-empty-graph">
+                Complete an iteration in-game to populate enemy improvement graphs.
+              </div>
+            )}
+          </div>
+
+          {latestProof && (
+            <div className="lab-card">
+              <div className="lab-card-title">Latest Before vs After</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 10 }}>
+                {[
+                  ['Strength', `${latestProof.beforeStrengthIndex.toFixed(1)} -> ${latestProof.afterStrengthIndex.toFixed(1)}`],
+                  ['Fitness', `${latestProof.roundAvgFitness.toFixed(1)} avg / ${latestProof.roundMaxFitness.toFixed(1)} max`],
+                  ['Difficulty', `x${latestProof.difficultyBefore.toFixed(2)} -> x${latestProof.difficultyAfter.toFixed(2)}`],
+                  ['Pathfinding', `${latestProof.avgPathTimeMs.toFixed(2)}ms / ${latestProof.avgNodesExpanded.toFixed(0)} nodes`],
+                  ['Combat', `${latestProof.avgDetections.toFixed(1)} det / ${latestProof.avgDamageDealt.toFixed(1)} dmg`],
+                  ['Dominant Algo', latestProof.dominantAlgorithm],
+                ].map(([label, value]) => (
+                  <div key={label} className="lab-metric-card">
+                    <span>{label}</span>
+                    <strong>{value}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {proofHistory.length > 0 && (
+            <div className="lab-card">
+              <div className="lab-card-title">All Metrics Snapshot</div>
+              <div className="lab-metric-grid">
+                {GRAPH_METRICS.map((metric) => (
+                  <div key={metric.key}>
+                    <span>{metric.label}</span>
+                    <MiniMetricGraph
+                      type="line"
+                      values={getProofSeries(proofHistory, metric.key)}
+                      labels={graphLabels}
+                      color={metric.color}
+                      height={92}
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function AlgorithmLabScreen() {
   const setScreen = useGameStore((s) => s.setScreen);
+  const iterationProofHistory = useGameStore((s) => s.iterationProofHistory);
+  const enemyAnalytics = useGameStore((s) => s.enemyAnalytics);
+  const population = useGameStore((s) => s.population);
+  const generation = useGameStore((s) => s.generation);
 
   const [cells, setCells] = useState<CellState[][]>(() => {
     const c = makeEmptyCells();
@@ -83,6 +391,9 @@ export function AlgorithmLabScreen() {
   const [drawMode, setDrawMode] = useState<DrawMode>('wall');
   const [selectedAlgo, setSelectedAlgo] = useState<AlgorithmType>(AlgorithmType.ASTAR);
   const [animSpeed, setAnimSpeed] = useState(30); // ms per step
+  const [labView, setLabView] = useState<LabView>('sandbox');
+  const [graphType, setGraphType] = useState<LabGraphType>('line');
+  const [selectedMetric, setSelectedMetric] = useState(GRAPH_METRICS[0].key);
 
   // Visualization state
   const [visitedCells, setVisitedCells] = useState<{ x: number; y: number; step: number }[]>([]);
@@ -158,15 +469,21 @@ export function AlgorithmLabScreen() {
     animRef.current = setTimeout(tick, animSpeed);
   }, [cells, selectedAlgo, startPos, goalPos, animSpeed, reset]);
 
-  const runComparison = useCallback(() => {
+  const runComparison = useCallback(async () => {
     reset();
+    setIsRunning(true);
     const results: { algo: AlgorithmType; result: PathResult }[] = [];
+    
     for (const algo of ALL_ALGOS) {
+      // Yield to the main thread before running each algorithm
+      await new Promise(resolve => setTimeout(resolve, 10));
       const grid = buildGrid(cells);
       const res = runAlgorithm(algo, grid, startPos.x, startPos.y, goalPos.x, goalPos.y);
       results.push({ algo, result: res });
     }
+    
     setComparison(results);
+    setIsRunning(false);
   }, [cells, startPos, goalPos, reset]);
 
   // Cell interaction
@@ -206,7 +523,6 @@ export function AlgorithmLabScreen() {
   }, [pathCells, visitedCells, selectedAlgo]);
 
   const algoInfo = getAlgorithmInfo(selectedAlgo);
-
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column', background: 'var(--bg-void)', overflow: 'hidden' }}>
       {/* Header */}
@@ -214,8 +530,37 @@ export function AlgorithmLabScreen() {
         <button className="btn btn-pixel" style={{ fontSize: '0.6rem', padding: '6px 14px' }} onClick={() => setScreen('mainMenu')}>← Back</button>
         <h1 className="fantasy-font gold-text" style={{ fontSize: '1.4rem', margin: 0 }}>🧪 Algorithm Lab</h1>
         <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>Draw walls · Place start/goal · Watch algorithms find the path</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {(['sandbox', 'graphs'] as LabView[]).map((view) => (
+            <button
+              key={view}
+              className="btn btn-pixel"
+              onClick={() => setLabView(view)}
+              style={{
+                fontSize: '0.58rem',
+                padding: '6px 12px',
+                borderColor: labView === view ? 'var(--gold)' : 'var(--border-subtle)',
+                color: labView === view ? 'var(--gold)' : 'var(--text-secondary)',
+              }}
+            >
+              {view === 'sandbox' ? 'Sandbox' : 'Enemy Graphs'}
+            </button>
+          ))}
+        </div>
       </div>
 
+      {labView === 'graphs' ? (
+        <LabEnemyGraphs
+          proofHistory={iterationProofHistory}
+          enemyAnalytics={enemyAnalytics}
+          population={population}
+          generation={generation}
+          graphType={graphType}
+          selectedMetric={selectedMetric}
+          onGraphTypeChange={setGraphType}
+          onMetricChange={setSelectedMetric}
+        />
+      ) : (
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
         {/* Left: Controls */}
         <div style={{ width: 260, borderRight: '1px solid var(--border-subtle)', overflowY: 'auto', padding: 16, display: 'flex', flexDirection: 'column', gap: 16, flexShrink: 0 }}>
@@ -457,6 +802,7 @@ export function AlgorithmLabScreen() {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 }

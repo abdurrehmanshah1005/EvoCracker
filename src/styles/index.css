@@ -595,6 +595,11 @@ body {
   animation: breathe 0.8s ease-in-out infinite;
 }
 
+.hud-bar-fill.sprint {
+  background: linear-gradient(90deg, var(--blue-dark), var(--cyan));
+  box-shadow: 0 0 8px rgba(68, 221, 255, 0.35);
+}
+
 .hud-bar-value {
   font-family: var(--font-pixel);
   font-size: 0.5rem;
@@ -624,7 +629,7 @@ body {
   right: 0;
   top: 0;
   bottom: 0;
-  width: 380px;
+  width: min(440px, 100vw);
   background: var(--bg-overlay);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -703,6 +708,7 @@ body {
 .analytics-stat {
   display: flex;
   justify-content: space-between;
+  gap: var(--space-sm);
   padding: var(--space-xs) 0;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
 }
@@ -717,6 +723,264 @@ body {
   font-weight: 600;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-xs);
+}
+
+.metric-grid.compact {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: var(--space-xs);
+}
+
+.metric-pill {
+  min-width: 0;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+}
+
+.metric-pill span {
+  display: block;
+  font-size: 0.58rem;
+  color: var(--text-muted);
+  line-height: 1.2;
+}
+
+.metric-pill strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.metric-pill.good strong {
+  color: var(--green);
+}
+
+.metric-pill.warn strong {
+  color: var(--yellow);
+}
+
+.metric-pill.bad strong {
+  color: var(--red);
+}
+
+.analytics-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-xs) 0;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
+.analytics-toggle-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--gold);
+  flex: 0 0 auto;
+}
+
+.mini-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mini-chart-bar {
+  flex: 1;
+  min-width: 5px;
+  border-radius: 2px 2px 0 0;
+  opacity: 0.82;
+}
+
+.chart-caption {
+  margin-top: var(--space-sm);
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.gene-delta-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 46px;
+  align-items: center;
+  gap: var(--space-xs);
+  margin-bottom: 5px;
+}
+
+.gene-delta-row > span,
+.gene-delta-row > strong {
+  font-size: 0.65rem;
+}
+
+.gene-delta-row > span {
+  color: var(--text-muted);
+}
+
+.gene-delta-row > strong {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.gene-delta-row .positive {
+  color: var(--green);
+}
+
+.gene-delta-row .negative {
+  color: var(--red);
+}
+
+.gene-delta-bars {
+  display: grid;
+  gap: 2px;
+}
+
+.gene-delta-track,
+.path-progress-track {
+  height: 6px;
+  background: var(--bg-void);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.gene-delta-track div,
+.path-progress-track div {
+  height: 100%;
+  border-radius: 3px;
+}
+
+.gene-delta-track.before div {
+  background: var(--text-muted);
+}
+
+.gene-delta-track.after div,
+.path-progress-track div {
+  background: var(--green);
+}
+
+.path-progress-track {
+  margin: 6px 0;
+}
+
+.lab-card,
+.lab-metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.lab-card {
+  padding: var(--space-md);
+}
+
+.lab-card-title {
+  font-family: var(--font-pixel);
+  font-size: 0.58rem;
+  color: var(--purple-light);
+  margin-bottom: var(--space-sm);
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.lab-metric-card {
+  padding: var(--space-sm) var(--space-md);
+  min-width: 0;
+}
+
+.lab-metric-card span,
+.lab-stat-row span,
+.lab-muted {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.lab-metric-card strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.lab-chip {
+  padding: 7px 9px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-void);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  text-transform: capitalize;
+}
+
+.lab-chip[data-active="true"] {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: rgba(200, 168, 80, 0.1);
+}
+
+.lab-stat-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 5px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.lab-stat-row strong {
+  color: var(--text-primary);
+  font-size: 0.72rem;
+}
+
+.lab-graph-svg {
+  width: 100%;
+  min-height: 120px;
+  display: block;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-sm);
+}
+
+.lab-empty-graph {
+  min-height: 230px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-lg);
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--border-medium);
+  border-radius: var(--radius-sm);
+}
+
+.lab-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.lab-metric-grid > div > span {
+  display: block;
+  margin-bottom: 5px;
+  font-size: 0.66rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
 }
 
 /* Enemy card in analytics */

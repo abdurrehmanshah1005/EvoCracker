@@ -3,6 +3,17 @@
 Track what was done in each phase, by whom, and when.
 Anyone picking this up from GitHub should read this first.
 
+## Evaluator Phase Map
+
+These are the current deliverables using the evaluator's phase wording:
+
+- **Phase 1: The Plan** — documented in `docs/PHASE_1_DOCUMENTATION.md`.
+- **Phase 2: The Setup** — documented in `docs/PHASE_2_SETUP.md`; calibration records keystrokes, movement coordinates, and zone dwell time.
+- **Phase 3: The Code** — documented in `docs/PHASE_3_CODE.md`; covers pathfinding, Behavior Trees, and the GA loop.
+- **Phase 4: The Proof** — documented in `docs/PHASE_4_PROOF.md`; covers fitness graphs and pathfinding runtime comparison.
+- **Phase 5: The Game** — documented in `docs/PHASE_5_GAME.md`; covers the playable web app, dashboard, and hosting checklist.
+- **Phase 6: The Report** — intentionally deferred until gameplay changes are final.
+
 ---
 
 ## ✅ Phase 0 — Project Scaffold & Tooling
