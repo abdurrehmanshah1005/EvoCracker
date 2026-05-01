@@ -1034,7 +1034,9 @@ export function GameScreen() {
 
           if (timer <= 0) {
             const isPursuing = enemy.alertState === AlertState.CHASING || enemy.alertState === AlertState.ALERT;
-            const pursuitInterval = Math.max(0.12, 0.33 - (intelligenceRunRef.current - 1) * 0.07);
+            // Force pursuit interval to be slow (1.5s) so we can actually see DLS/IDS run their paths
+            // instead of vibrating from high-frequency partial path recalculations.
+            const pursuitInterval = 1.5; 
             const nextInterval = isPursuing ? pursuitInterval : BASE_PATH_INTERVAL + Math.random() * 0.3;
             pathTimers.set(enemy.id, nextInterval);
 
@@ -1077,13 +1079,13 @@ export function GameScreen() {
               targetX = Math.max(1, Math.min(dungeon.width - 2, enemy.tileX + fdx * 4));
               targetY = Math.max(1, Math.min(dungeon.height - 2, enemy.tileY + fdy * 4));
             } else {
-              if (!enemy.patrolTarget || (enemy.tileX === enemy.patrolTarget.x && enemy.tileY === enemy.patrolTarget.y)) {
-                enemy.patrolTarget = enemy.getPatrolTarget(grid);
-              }
-              if (enemy.patrolTarget) {
-                targetX = enemy.patrolTarget.x;
-                targetY = enemy.patrolTarget.y;
-              }
+              // DEBUG/TESTING OVERRIDE: Force enemies to path to player even when not alerted
+              // so the user can observe the algorithms without high-frequency pursuit logic.
+              targetX = p.tileX;
+              targetY = p.tileY;
+              
+              // Clear patrol target so they don't get stuck in patrol state
+              enemy.patrolTarget = null;
             }
 
             enemy.requestPath(grid, targetX, targetY);

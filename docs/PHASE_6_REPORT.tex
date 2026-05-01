@@ -7,7 +7,7 @@
 \usepackage{graphicx}
 \usepackage{booktabs}
 
-\title{\textbf{EvoCracker: Phase 6 Technical Report}}
+\title{\textbf{EvoCracker: Phase 6 Technical Report \\ \large System Stabilization \& AI Pathfinding Refinement}}
 \author{Development Team}
 \date{\today}
 
@@ -16,31 +16,53 @@
 \maketitle
 
 \begin{abstract}
-This report outlines the recent architectural improvements and bug resolutions implemented in the EvoCracker system, specifically addressing issues in the AI Analytics Dashboard, enemy spawning logic, and pathfinding state transitions. These changes align with the Phase 6 requirements for finalizing gameplay integrity and data accuracy.
+This report outlines the comprehensive architectural improvements and bug resolutions implemented in the EvoCracker system during Phase 6. The primary focus of this phase was to address critical discrepancies in the AI Analytics Dashboard, enforce consistent enemy spawning, and resolve mathematical deadlocks within the core pathfinding algorithms (Depth-Limited Search, Iterative Deepening Search, and Hill Climbing). These resolutions stabilize the evolutionary pipeline and ensure absolute synchronization between the simulation and its telemetry.
 \end{abstract}
 
 \section{Introduction}
-During the evaluation of the EvoCracker game, several inconsistencies were identified regarding the AI evolution system and the real-time analytics dashboard. The data presented in the \texttt{AIAnalyticsPanel} did not correctly map to the underlying game state, enemy variety was artificially restricted, and pathfinding algorithms were exhibiting unintended state transitions. This document details the resolutions applied to stabilize the engine.
+Phase 6 development was initiated to resolve severe inconsistencies identified during the integration of the Genetic Algorithm (GA) with the game simulation. The telemetry data presented in the AI Analytics Panel frequently decoupled from the rendering engine, presenting inaccurate metrics. Furthermore, specific enemy archetypes exhibited catastrophic movement failures, appearing "frozen" or locked in loops when transitioning into alert states. This document details the exact nature of these defects and the technical solutions applied to rectify them.
 
-\section{Architectural Changes \& Resolutions}
+\section{Analytics \& Core Engine Resolutions}
 
-\subsection{Analytics Dashboard Synchronization}
-\textbf{Issue:} The analytics dashboard displayed "made-up" metrics and inaccurate enemy names relative to their visual sprites. \\
-\textbf{Resolution:} The \texttt{createEnemySprite} method within \texttt{SpriteFactory.ts} was refactored. Previously, it utilized a hardcoded mapping to generic dungeon-pack sprites. It has been updated to dynamically map the runtime \texttt{EnemyType} to its corresponding \texttt{CharacterDef} index. This ensures that the generated sprite explicitly matches the \texttt{EnemyType} string recorded in the telemetry snapshots, unifying the visual representation with the dashboard data. Furthermore, analytics updates were decoupled from the pause state in \texttt{GameScreen.tsx}, allowing real-time inspection of the paused game state.
+\subsection{Analytics \& Sprite Synchronization}
+\textbf{Issue:} The telemetry dashboard displayed "made-up" metrics and inaccurate enemy names relative to their visual sprites. The GA was optimizing entities that did not correspond to their visual representation. \\
+\textbf{Resolution:} The \texttt{createEnemySprite} method within \texttt{SpriteFactory.ts} was refactored. The hardcoded fallback to generic dungeon-pack sprites was removed. It now dynamically maps the runtime \texttt{EnemyType} string directly to its corresponding \texttt{CharacterDef} index. The rendered sprite now strictly correlates with the exact name and data recorded in the analytics snapshot.
 
-\subsection{Enemy Spawning and Genetic Diversity}
-\textbf{Issue:} The spawning system failed to instantiate a diverse array of enemy archetypes, limiting the genetic algorithm's search space and resulting in repetitive gameplay. \\
-\textbf{Resolution:} The \texttt{getEnemyTypesForFloor} function in \texttt{Archetypes.ts} was modified to unlock all eight enemy archetypes starting from Floor 1. Additionally, the spawn loop in \texttt{GameScreen.tsx} was refactored from randomized selection to a round-robin distribution. This guarantees that at least one instance of each enemy type is present, maximizing the diversity of pathfinding algorithms active within the environment and providing the Genetic Algorithm (GA) with a comprehensive dataset for fitness evaluation.
+\subsection{Guaranteed Genetic Diversity (Spawning Logic)}
+\textbf{Issue:} The procedural generator gated enemy types behind specific floor thresholds (e.g., Floor 1 only generated Toads and Ghosts). This artificially restricted the GA's search space and starved specific algorithms of fitness data. \\
+\textbf{Resolution:} The \texttt{getEnemyTypesForFloor} function in \texttt{Archetypes.ts} was modified to unlock all eight enemy archetypes immediately from Floor 1. Furthermore, the spawn loop in \texttt{GameScreen.tsx} was overhauled to use a round-robin distribution strategy rather than randomized selection. This mathematically guarantees that at least one instance of every enemy archetype (and thus, every pathfinding algorithm) is spawned per map iteration, providing the GA with a universally diverse dataset.
 
-\subsection{Pathfinding State Transitions}
-\textbf{Issue:} Enemies were incorrectly switching their core search algorithms when transitioning into \texttt{ALERT} or \texttt{CHASING} states. \\
-\textbf{Resolution:} The \texttt{getActiveAlgorithm} function within \texttt{EnemyBase.ts} was corrected. Enemies now strictly adhere to their assigned \texttt{ENEMY\_DEFAULT\_ALGORITHM} (e.g., Slime uses BFS, Ghost uses DFS) regardless of their alert state. The genome's algorithm weights continue to influence the evolutionary fitness calculations but no longer cause unintended runtime mutations of the pathfinding logic.
+\subsection{Analytics Accessibility During Pause}
+\textbf{Issue:} The global pause menu's \texttt{z-index} blocked the React analytics dashboard overlay, preventing developers from inspecting telemetry during a frozen frame. \\
+\textbf{Resolution:} The component hierarchy in \texttt{GameScreen.tsx} was adjusted so the analytics panel renders above the pause context layer. The backtick (\`) key listener was relocated to a globally scoped input handler that remains active while the simulation is paused.
 
-\subsection{User Interface Enhancements}
-\textbf{Issue:} The AI Analytics Panel was inaccessible while the game was paused, hindering debugging and analysis. \\
-\textbf{Resolution:} The pause overlay's z-index hierarchy was adjusted, and a toggle hook was added to the \texttt{GameScreen} input loop. The dashboard can now be toggled using the backtick (\`) key while the game is paused, facilitating deep inspection of the evolutionary state without advancing the game simulation.
+\subsection{Correcting Metric Pollution}
+\textbf{Issue:} The analytics snapshot loop was pulling data from dead, despawned, or nullified entities, polluting the metrics and displaying "ghost" cards in the UI. \\
+\textbf{Resolution:} The snapshot timer in \texttt{GameScreen.tsx} now utilizes a strict \texttt{.filter((e) => e.isAlive)} map before dispatching data to the Zustand store. The live AI monitor cards in \texttt{AIAnalyticsPanel.tsx} were also updated to display the active algorithm using accurate, color-coded badges matching the \texttt{EnemyType}.
+
+\section{Pathfinding Logic \& AI Deadlocks}
+
+\subsection{Pathfinding State Mutation Consistency}
+\textbf{Issue:} Upon entering the \texttt{ALERT} or \texttt{CHASING} state, enemies randomly sampled an algorithm from their genome weights, abandoning their archetype's default algorithm (e.g., a Ghost switching from DFS to A* mid-pursuit). \\
+\textbf{Resolution:} The \texttt{getActiveAlgorithm} method in \texttt{EnemyBase.ts} was corrected. Enemies now strictly adhere to their assigned \texttt{ENEMY\_DEFAULT\_ALGORITHM}. The genome algorithm weights are now isolated strictly for evolutionary fitness tracking and mutation, and no longer govern runtime pathfinding overrides.
+
+\subsection{Grid-Based Local Minima in DLS \& IDS}
+\textbf{Issue:} The Ogre (Depth-Limited Search) and Bridge Heroine (Iterative Deepening Search) frequently became permanently stuck against walls. Because these algorithms utilize a generic \texttt{visited} state, "snake paths" generated by deep exploratory branches marked adjacent tiles as visited, mathematically blocking shorter, more direct paths. \\
+\textbf{Resolution:} Both \texttt{DLS.ts} and \texttt{IDS.ts} were rewritten to utilize a \texttt{visitedDepth} map. Instead of a binary visited flag, the algorithm records the depth at which a node was discovered. If the search routine discovers a previously visited node via a shorter path (\texttt{nextDepth < prevDepth}), it is allowed to overwrite the history and continue exploring. This breaks the local minima deadlock while remaining mathematically identical to pure depth-first exploration.
+
+\subsection{Hill Climbing Vantage Scoring (Distance Penalty)}
+\textbf{Issue:} The Demon (Hill Climbing) refused to pursue the player, instead choosing to retreat into empty corners of the map. \\
+\textbf{Resolution:} An analysis of \texttt{HillClimbing.ts} revealed a gradient inversion. The default scoring awarded $+3$ points per unit of distance away from walls. The distance penalty for being far from the player was only $-2$. Consequently, moving away from the player to avoid walls resulted in a net positive score. The heuristic gradient was severely steepened; moving closer to the target player now yields $+100$ base points minus a penalty multiplier of $20$, utterly overwhelming the wall-avoidance logic and forcing relentless pursuit until the optimal ranged distance is achieved.
+
+\subsection{Asynchronous Path Following Stutter}
+\textbf{Issue:} When alerted, enemies request paths asynchronously every 0.12 seconds. Because the path is generated relative to the time of request, enemies that moved forward one tile while waiting for the web-worker response would receive a path telling them to step backward onto the tile they just left. This drained their \texttt{moveAccumulator} budget to zero, causing them to vibrate in place. \\
+\textbf{Resolution:} The path reception logic in \texttt{EnemyBase.ts} was patched. Upon receiving a resolved path, the enemy now iterates through the path array to dynamically discover its precise, current topological location. It then sets its \texttt{pathIndex} to \texttt{startIndex + 1}, ensuring it never wastes movement cycles re-navigating to an occupied tile.
+
+\subsection{Map Selection Persistence}
+\textbf{Issue:} Despite explicit user selection, the engine would transition from the chosen Tiled JSON map to a procedurally generated BSP dungeon upon reaching Floor 3 (Iteration 2). \\
+\textbf{Resolution:} The procedural switch within \texttt{DungeonGenerator.ts} was governed by a hardcoded \texttt{if (floor === 1 || floor === 2)} limit. This condition was completely removed. The generator now unconditionally prioritizes the \texttt{selectedMap} variable regardless of the current evolutionary iteration.
 
 \section{Conclusion}
-The implementation of these fixes significantly enhances the data integrity of the EvoCracker platform. The synchronization between the backend telemetry and the frontend analytics dashboard ensures that the visual representation of the Genetic Algorithm's progress is both accurate and reliable.
+The completion of Phase 6 definitively stabilizes the EvoCracker environment. By resolving fundamental mathematical oversights in the search algorithms and enforcing strict separation between visual telemetry and underlying genetic data, the simulation now provides a pristine, deterministically accurate dataset for continuous evolutionary learning.
 
 \end{document}
