@@ -286,6 +286,7 @@ export function GameScreen() {
     trapdoorReturnPendingRef.current = false;
     trapdoorReturnTimerRef.current = 0;
     allSpawnedEnemiesRef.current = [];
+    evolvingPopulationRef.current = [];
     setIsDead(false);
     playerVelocityRef.current = { x: 0, y: 0 };
     prevPlayerTileRef.current = { x: 0, y: 0 };

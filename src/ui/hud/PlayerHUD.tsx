@@ -1,4 +1,5 @@
 import { useGameStore } from '@store/gameStore';
+import { AVAILABLE_MAPS } from '@ui/screens/MapSelectScreen';
 import type { Item } from '@game/entities/items/ItemSystem';
 
 interface PlayerHUDProps {
@@ -9,9 +10,13 @@ interface PlayerHUDProps {
 export function PlayerHUD({ items = [], sprintEnergy = 1 }: PlayerHUDProps) {
   const {
     playerHealth, playerMaxHealth, playerScore,
-    currentFloor, currentBiome, fps,
+    fps,
     analyticsEnabled, generation, population, currentDifficulty, iteration,
+    selectedMap,
   } = useGameStore();
+
+  const mapDef = AVAILABLE_MAPS.find((m) => m.id === selectedMap);
+  const mapName = mapDef?.name ?? 'Unknown Battleground';
 
   const healthPercent = (playerHealth / playerMaxHealth) * 100;
   const isLow = healthPercent < 30;
@@ -43,11 +48,11 @@ export function PlayerHUD({ items = [], sprintEnergy = 1 }: PlayerHUDProps) {
           <span className="hud-bar-value">{Math.round(sprintEnergy * 100)}%</span>
         </div>
 
-        {/* Floor info */}
+        {/* Battleground & Iteration info */}
         <div className="hud-info">
-          Floor <span className="value">{currentFloor}</span>
+          <span style={{ color: 'var(--gold)' }}>{mapName}</span>
           &nbsp;—&nbsp;
-          <span style={{ color: 'var(--purple-light)', textTransform: 'capitalize' }}>{currentBiome}</span>
+          Itr <span className="value">{iteration}</span>
         </div>
 
         {/* Score */}
