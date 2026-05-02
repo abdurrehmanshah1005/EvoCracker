@@ -9,10 +9,11 @@ interface PlayerHUDProps {
 
 export function PlayerHUD({ items = [], sprintEnergy = 1 }: PlayerHUDProps) {
   const {
-    playerHealth, playerMaxHealth, playerScore,
+    playerHealth, playerMaxHealth, playerScore, coinCount,
     fps,
     analyticsEnabled, generation, population, currentDifficulty, iteration,
     selectedMap,
+    activeAlly,
   } = useGameStore();
 
   const mapDef = AVAILABLE_MAPS.find((m) => m.id === selectedMap);
@@ -58,6 +59,14 @@ export function PlayerHUD({ items = [], sprintEnergy = 1 }: PlayerHUDProps) {
         {/* Score */}
         <div className="hud-info">
           Score: <span className="value">{playerScore.toLocaleString()}</span>
+        </div>
+
+        <div className="hud-info">
+          Coins: <span className="value">{coinCount.toLocaleString()}</span>
+        </div>
+
+        <div className="hud-info">
+          Ally: <span className="value">{activeAlly ? activeAlly.toUpperCase() : 'NONE'}</span>
         </div>
       </div>
 

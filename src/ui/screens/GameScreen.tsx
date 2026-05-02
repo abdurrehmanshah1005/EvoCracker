@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { Application, Container, Graphics, Text, TextStyle, Sprite, AnimatedSprite } from 'pixi.js';
-import { useGameStore, type IterationProofData } from '@store/gameStore';
+import { useGameStore, type AllyKind, type IterationProofData } from '@store/gameStore';
 import { InputManager } from '@core/InputManager';
 import { Camera } from '@core/Camera';
 import { Grid } from '@ai/pathfinding/Grid';
@@ -31,7 +31,7 @@ import {
 } from '@ai/evolution/GeneticAlgorithm';
 import { EventBus, GameEvents } from '@core/EventBus';
 import type { EnemyBase } from '@game/entities/enemies/EnemyBase';
-import { randomInt } from '@utils/random';
+import { randomChoice, randomInt, shuffle } from '@utils/random';
 import { loadTileset, isTilesetLoaded, getTileTexture, getWallTexture, loadItemAnimations, getTiledTileTexture, isTiledTilesetLoaded, getTiledTileAnimation, stripTiledFlipFlags } from '@core/DungeonTilesetLoader';
 
 const MAX_INTELLIGENCE_RUNS = 1;
@@ -55,6 +55,57 @@ const CALIBRATION_PLAYER_SPEED_MULTIPLIER = 1.45;
 const SPRINT_SPEED_MULTIPLIER = 1.55;
 const SPRINT_DRAIN_PER_SECOND = 0.34;
 const SPRINT_RECHARGE_DELAY_SECONDS = 30;
+const COIN_TARGET_COUNT = 10;
+const COIN_MIN_SEPARATION = 8;
+const COIN_VALUE = 1;
+const TELEPORT_COOLDOWN_SECONDS = 1.1;
+const ORB_INVIS_DURATION = 8;
+const ORB_ONE_HIT_DURATION = 6;
+const ORB_SPEED_DURATION = 10;
+const ORB_SPEED_MULTIPLIER = 1.35;
+const ALLY_ASSIST_SPEED_MULTIPLIER = 1.08;
+const ALLY_STRIKER_COOLDOWN = 1.6;
+const ALLY_STRIKER_RANGE = 4.5;
+const ALLY_STRIKER_DAMAGE = 9;
+
+type ChestLootKind = 'invisibility' | 'oneHit' | 'speed';
+type ChestLoot = { kind: ChestLootKind; duration: number };
+
+type ChestPickup = {
+  key: string;
+  tileX: number;
+  tileY: number;
+  loot: ChestLoot;
+  isOpened: boolean;
+  isLooted: boolean;
+  sprite?: AnimatedSprite;
+  source: 'tiled' | 'overlay';
+};
+
+type CoinPickup = {
+  key: string;
+  tileX: number;
+  tileY: number;
+  sprite: AnimatedSprite;
+  collected: boolean;
+  value: number;
+};
+
+type TeleporterPair = { a: { x: number; y: number }; b: { x: number; y: number } };
+type TeleporterVisual = { tileX: number; tileY: number; gfx: Graphics; pulseOffset: number };
+
+const ALLY_DEFS: Record<AllyKind, { name: string; cost: number; description: string }> = {
+  scout: {
+    name: 'Scout Wisp',
+    cost: 8,
+    description: 'Assist ally: +8% move speed.',
+  },
+  striker: {
+    name: 'Striker Wisp',
+    cost: 22,
+    description: 'Attack ally: strikes nearby enemies periodically.',
+  },
+};
 
 const PROOF_GENE_KEYS = [
   'speed',
@@ -104,6 +155,16 @@ function averageEnemyMetric(enemies: EnemyBase[], read: (enemy: EnemyBase) => nu
 function enemyTypeForCharacterName(name: string): EnemyType | null {
   const normalized = name.toLowerCase();
   return (Object.values(EnemyType).find((type) => type.toLowerCase() === normalized) as EnemyType | undefined) ?? null;
+}
+
+const CHEST_LOOT_OPTIONS: ChestLoot[] = [
+  { kind: 'invisibility', duration: ORB_INVIS_DURATION },
+  { kind: 'oneHit', duration: ORB_ONE_HIT_DURATION },
+  { kind: 'speed', duration: ORB_SPEED_DURATION },
+];
+
+function rollChestLoot(): ChestLoot {
+  return randomChoice(CHEST_LOOT_OPTIONS);
 }
 
 // ===== TILE COLORS — High contrast ==========================
@@ -309,6 +370,8 @@ export function GameScreen() {
       isHiding: false, stealthLevel: 0.5,
       tilePenalty: 0, tilePenaltyTimer: 0,
       isInvisible: false, invisibleTimer: 0,
+      speedBoostTimer: 0,
+      oneHitTimer: 0,
     } as PlayerState,
   });
 
@@ -323,6 +386,9 @@ export function GameScreen() {
   const currentDifficulty = useGameStore((s) => s.currentDifficulty);
   const iteration = useGameStore((s) => s.iteration);
   const learnedPopulation = useGameStore((s) => s.population);
+  const coinCount = useGameStore((s) => s.coinCount);
+  const unlockedAllies = useGameStore((s) => s.unlockedAllies);
+  const activeAlly = useGameStore((s) => s.activeAlly);
 
   // Store action refs — these never change identity, but using refs
   // prevents initGame from being recreated when other state changes
@@ -334,6 +400,10 @@ export function GameScreen() {
     setPlayerHealth: useGameStore.getState().setPlayerHealth,
     setPlayerMaxHealth: useGameStore.getState().setPlayerMaxHealth,
     addScore: useGameStore.getState().addScore,
+    addCoins: useGameStore.getState().addCoins,
+    spendCoins: useGameStore.getState().spendCoins,
+    unlockAlly: useGameStore.getState().unlockAlly,
+    setActiveAlly: useGameStore.getState().setActiveAlly,
     setScreen: useGameStore.getState().setScreen,
     togglePause: useGameStore.getState().togglePause,
     setPaused: useGameStore.getState().setPaused,
@@ -366,6 +436,23 @@ export function GameScreen() {
     if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
     notifTimerRef.current = setTimeout(() => setNotification(null), 3000);
   }, []);
+
+  const tryUnlockAlly = useCallback((kind: AllyKind) => {
+    const def = ALLY_DEFS[kind];
+    if (coinCount < def.cost) {
+      showNotification(`Need ${def.cost} coins to unlock ${def.name}.`);
+      return;
+    }
+    storeActionsRef.current.spendCoins(def.cost);
+    storeActionsRef.current.unlockAlly(kind);
+    storeActionsRef.current.setActiveAlly(kind);
+    showNotification(`Unlocked ${def.name}!`);
+  }, [coinCount, showNotification]);
+
+  const equipAlly = useCallback((kind: AllyKind) => {
+    storeActionsRef.current.setActiveAlly(kind);
+    showNotification(`${ALLY_DEFS[kind].name} equipped.`);
+  }, [showNotification]);
 
   const initGame = useCallback(async (signal: AbortSignal) => {
     if (!canvasRef.current) return;
@@ -482,6 +569,19 @@ export function GameScreen() {
       worldContainer.addChild(attackLayer);
       attackVisualRef.current = attackLayer;
 
+      const allyLayer = new Container();
+      allyLayer.label = 'allies';
+      allyLayer.zIndex = 14;
+      worldContainer.addChild(allyLayer);
+
+      const allyOrb = new Graphics();
+      allyOrb.visible = false;
+      allyLayer.addChild(allyOrb);
+
+      const allyAttackLayer = new Graphics();
+      allyAttackLayer.zIndex = 44;
+      worldContainer.addChild(allyAttackLayer);
+
       // ── Generate dungeon ──────────────────────────────────────────
       const biome = getBiomeForFloor(currentFloor);
       const dungeon = await generateDungeon(GRID_COLS, GRID_ROWS, currentFloor, biome, selectedMap);
@@ -514,6 +614,172 @@ export function GameScreen() {
       );
       markWaveSpearChunkNearExit(tilemapAnimRuntime, dungeon.exitPoint.x, dungeon.exitPoint.y, currentDifficulty);
       renderMarkers(worldContainer, dungeon);
+
+      const pickupContainer = new Container();
+      pickupContainer.label = 'pickups';
+      pickupContainer.sortableChildren = true;
+      pickupContainer.zIndex = 6;
+      worldContainer.addChild(pickupContainer);
+
+      const coinPickups: CoinPickup[] = [];
+      const chestPickups: ChestPickup[] = [];
+      const chestByKey = new Map<string, InteractiveTileAnim>();
+      const teleportVisuals: TeleporterVisual[] = [];
+      let teleportPair: TeleporterPair | null = null;
+
+      const keyFor = (x: number, y: number) => `${x},${y}`;
+      const manhattan = (ax: number, ay: number, bx: number, by: number) => Math.abs(ax - bx) + Math.abs(ay - by);
+
+      const reserved = new Set<string>();
+      const reserve = (x: number, y: number) => reserved.add(keyFor(x, y));
+
+      reserve(dungeon.spawnPoint.x, dungeon.spawnPoint.y);
+      reserve(dungeon.exitPoint.x, dungeon.exitPoint.y);
+      for (const pt of dungeon.treasurePoints) reserve(pt.x, pt.y);
+      for (const pt of dungeon.enemySpawnPoints) reserve(pt.x, pt.y);
+
+      for (const tile of tilemapAnimRuntime.interactive) {
+        if (tile.kind !== 'chest') continue;
+        chestByKey.set(tile.key, tile);
+        reserve(tile.tileX, tile.tileY);
+        chestPickups.push({
+          key: tile.key,
+          tileX: tile.tileX,
+          tileY: tile.tileY,
+          loot: rollChestLoot(),
+          isOpened: false,
+          isLooted: false,
+          source: 'tiled',
+        });
+      }
+
+      if (itemAnims.chest.length > 0) {
+        for (const pt of dungeon.treasurePoints) {
+          const key = keyFor(pt.x, pt.y);
+          if (chestByKey.has(key)) continue;
+          const chestSprite = new AnimatedSprite(itemAnims.chest);
+          chestSprite.anchor.set(0.5);
+          chestSprite.x = pt.x * TILE_SIZE + TILE_SIZE / 2;
+          chestSprite.y = pt.y * TILE_SIZE + TILE_SIZE / 2;
+          chestSprite.width = TILE_SIZE;
+          chestSprite.height = TILE_SIZE;
+          chestSprite.animationSpeed = 0.12;
+          chestSprite.loop = false;
+          chestSprite.gotoAndStop(0);
+          chestSprite.zIndex = 8;
+          pickupContainer.addChild(chestSprite);
+
+          chestPickups.push({
+            key,
+            tileX: pt.x,
+            tileY: pt.y,
+            loot: rollChestLoot(),
+            isOpened: false,
+            isLooted: false,
+            sprite: chestSprite,
+            source: 'overlay',
+          });
+        }
+      }
+
+      const isLootTile = (x: number, y: number) => {
+        const tile = dungeon.tiles[y]?.[x];
+        if (tile === undefined) return false;
+        return tile !== TileType.WALL
+          && tile !== TileType.STAIRS_UP
+          && tile !== TileType.STAIRS_DOWN
+          && tile !== TileType.FLOOR_TRAP
+          && tile !== TileType.FLOOR_WATER
+          && tile !== TileType.FLOOR_MUD
+          && tile !== TileType.TREASURE;
+      };
+
+      const itemCandidates: { x: number; y: number }[] = [];
+      for (let y = 1; y < dungeon.height - 1; y++) {
+        for (let x = 1; x < dungeon.width - 1; x++) {
+          if (!isLootTile(x, y)) continue;
+          const key = keyFor(x, y);
+          if (reserved.has(key)) continue;
+          if (manhattan(x, y, dungeon.spawnPoint.x, dungeon.spawnPoint.y) <= 3) continue;
+          if (manhattan(x, y, dungeon.exitPoint.x, dungeon.exitPoint.y) <= 3) continue;
+          itemCandidates.push({ x, y });
+        }
+      }
+
+      const pickTeleportPair = (candidates: { x: number; y: number }[]): TeleporterPair | null => {
+        const shuffled = shuffle([...candidates]);
+        for (let i = 0; i < shuffled.length; i++) {
+          const a = shuffled[i];
+          for (let j = i + 1; j < shuffled.length; j++) {
+            const b = shuffled[j];
+            if (manhattan(a.x, a.y, b.x, b.y) >= 12) {
+              return { a, b };
+            }
+          }
+        }
+        return null;
+      };
+
+      teleportPair = pickTeleportPair(itemCandidates);
+      if (teleportPair) {
+        const addTeleporter = (x: number, y: number) => {
+          const gfx = new Graphics();
+          const px = x * TILE_SIZE + TILE_SIZE / 2;
+          const py = y * TILE_SIZE + TILE_SIZE / 2;
+          gfx.circle(px, py, 12);
+          gfx.stroke({ color: 0x66ccff, width: 2, alpha: 0.9 });
+          gfx.circle(px, py, 6);
+          gfx.fill({ color: 0x66ccff, alpha: 0.35 });
+          gfx.zIndex = 4;
+          pickupContainer.addChild(gfx);
+          teleportVisuals.push({ tileX: x, tileY: y, gfx, pulseOffset: Math.random() * Math.PI * 2 });
+          reserve(x, y);
+        };
+
+        addTeleporter(teleportPair.a.x, teleportPair.a.y);
+        addTeleporter(teleportPair.b.x, teleportPair.b.y);
+      }
+
+      if (itemAnims.coin.length > 0) {
+        const coinCandidates = itemCandidates.filter((pt) => !reserved.has(keyFor(pt.x, pt.y)));
+        shuffle(coinCandidates);
+        const desiredCoins = Math.min(COIN_TARGET_COUNT, coinCandidates.length);
+        const chosen: { x: number; y: number }[] = [];
+
+        for (const pt of coinCandidates) {
+          if (chosen.length >= desiredCoins) break;
+          const farEnough = chosen.every((pick) => (
+            manhattan(pick.x, pick.y, pt.x, pt.y) >= COIN_MIN_SEPARATION
+          ));
+          if (farEnough) chosen.push(pt);
+        }
+
+        for (const pt of chosen) {
+          const key = keyFor(pt.x, pt.y);
+          if (reserved.has(key)) continue;
+
+          const coinSprite = new AnimatedSprite(itemAnims.coin);
+          coinSprite.anchor.set(0.5);
+          coinSprite.x = pt.x * TILE_SIZE + TILE_SIZE / 2;
+          coinSprite.y = pt.y * TILE_SIZE + TILE_SIZE / 2;
+          coinSprite.width = TILE_SIZE * 0.6;
+          coinSprite.height = TILE_SIZE * 0.6;
+          coinSprite.animationSpeed = 0.18;
+          coinSprite.play();
+          coinSprite.zIndex = 7;
+          pickupContainer.addChild(coinSprite);
+
+          coinPickups.push({
+            key,
+            tileX: pt.x,
+            tileY: pt.y,
+            sprite: coinSprite,
+            collected: false,
+            value: COIN_VALUE,
+          });
+          reserve(pt.x, pt.y);
+        }
+      }
 
       const getTelemetryZone = (tileX: number, tileY: number): string => {
         const tile = dungeon.tiles[tileY]?.[tileX];
@@ -833,6 +1099,40 @@ export function GameScreen() {
         }
       };
 
+      const applyChestLoot = (loot: ChestLoot) => {
+        const p = playerRef.current;
+        if (loot.kind === 'invisibility') {
+          p.state.isInvisible = true;
+          p.state.invisibleTimer = Math.max(p.state.invisibleTimer, loot.duration);
+          showNotification(`👁️ Orb of Invisibility — ${loot.duration}s`);
+          return;
+        }
+
+        if (loot.kind === 'oneHit') {
+          p.state.oneHitTimer = Math.max(p.state.oneHitTimer, loot.duration);
+          showNotification(`💥 Orb of Precision — ${loot.duration}s one-hit`);
+          return;
+        }
+
+        p.state.speedBoostTimer = Math.max(p.state.speedBoostTimer, loot.duration);
+        showNotification(`⚡ Orb of Haste — ${loot.duration}s speed`);
+      };
+
+      const setAllyOrbStyle = (kind: AllyKind | null) => {
+        allyOrb.clear();
+        if (!kind) {
+          allyOrb.visible = false;
+          return;
+        }
+
+        const color = kind === 'scout' ? 0x66ccff : 0xff8844;
+        allyOrb.circle(0, 0, 8);
+        allyOrb.fill({ color, alpha: 0.45 });
+        allyOrb.circle(0, 0, 12);
+        allyOrb.stroke({ color, width: 2, alpha: 0.9 });
+        allyOrb.visible = true;
+      };
+
       // ── Events ────────────────────────────────────────────────────
       const bus = EventBus.getInstance();
       const unsubNotif = bus.on(GameEvents.NOTIFICATION, (data: unknown) => {
@@ -853,6 +1153,10 @@ export function GameScreen() {
       let analyticsTimer = 0;
       let attackVisualTimer = 0;
       let playerAttackAnimTimer = 0;
+      let teleportCooldown = 0;
+      let allyAttackCooldown = 0;
+      let allyKindCached: AllyKind | null = null;
+      let allyAttackVisualTimer = 0;
 
       // ══════════════════════════════════════════════════════════════
       // GAME LOOP
@@ -946,6 +1250,9 @@ export function GameScreen() {
         const zone = getTelemetryZone(p.tileX, p.tileY);
         runTrackerRef.current.zoneTime[zone] = (runTrackerRef.current.zoneTime[zone] ?? 0) + dtSeconds;
 
+        const activeAllyNow = useGameStore.getState().activeAlly;
+        const allySpeedBoost = activeAllyNow === 'scout' ? ALLY_ASSIST_SPEED_MULTIPLIER : 1;
+
         const moveVec = input.getMovementVector();
         const moveX = moveVec.x;
         const moveY = moveVec.y;
@@ -974,7 +1281,12 @@ export function GameScreen() {
           * (isLargeMap ? LARGE_MAP_PLAYER_SPEED_MULTIPLIER : 1)
           * calibrationSpeedBoost;
         const sprintBoost = canSprint ? SPRINT_SPEED_MULTIPLIER : 1;
-        const moveSpeed = (p.state.isInvisible ? basePlayerMoveSpeed + 40 : basePlayerMoveSpeed) * sprintBoost * dtSeconds;
+        const speedBoost = p.state.speedBoostTimer > 0 ? ORB_SPEED_MULTIPLIER : 1;
+        const moveSpeed = (p.state.isInvisible ? basePlayerMoveSpeed + 40 : basePlayerMoveSpeed)
+          * sprintBoost
+          * allySpeedBoost
+          * speedBoost
+          * dtSeconds;
 
         if (isMoving) {
           const nextX = p.pixelX + moveX * moveSpeed;
@@ -1038,6 +1350,120 @@ export function GameScreen() {
           glowChild.scale.set(pulse);
         }
 
+        if (activeAllyNow !== allyKindCached) {
+          allyKindCached = activeAllyNow;
+          setAllyOrbStyle(activeAllyNow);
+        }
+
+        if (activeAllyNow) {
+          const bob = Math.sin(Date.now() * 0.006) * 3;
+          allyOrb.x = p.pixelX + 16;
+          allyOrb.y = p.pixelY - 18 + bob;
+        }
+
+        if (activeAllyNow === 'striker') {
+          allyAttackCooldown = Math.max(0, allyAttackCooldown - dtSeconds);
+          if (allyAttackCooldown <= 0) {
+            let target: EnemyBase | null = null;
+            let bestDist = Infinity;
+            for (const enemy of enemiesRef.current) {
+              if (!enemy.isAlive) continue;
+              const dx = enemy.tileX - p.tileX;
+              const dy = enemy.tileY - p.tileY;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist <= ALLY_STRIKER_RANGE && dist < bestDist) {
+                bestDist = dist;
+                target = enemy;
+              }
+            }
+
+            if (target) {
+              const damage = ALLY_STRIKER_DAMAGE + Math.round(currentFloor * 1.5);
+              target.takeDamage(damage);
+              allyAttackCooldown = ALLY_STRIKER_COOLDOWN;
+              allyAttackVisualTimer = 0.2;
+              allyAttackLayer.clear();
+              allyAttackLayer.moveTo(p.pixelX, p.pixelY - 12);
+              allyAttackLayer.lineTo(target.pixelX, target.pixelY - 12);
+              allyAttackLayer.stroke({ color: 0xff8844, width: 2, alpha: 0.7 });
+              allyAttackLayer.circle(target.pixelX, target.pixelY - 12, 8);
+              allyAttackLayer.stroke({ color: 0xff8844, width: 2, alpha: 0.7 });
+            }
+          }
+        } else {
+          allyAttackCooldown = 0;
+        }
+
+        // ── TELEPORTERS + PICKUPS ───────────────────────────────
+        if (teleportVisuals.length > 0) {
+          const now = Date.now();
+          for (const tele of teleportVisuals) {
+            const pulse = 1 + Math.sin(now * 0.004 + tele.pulseOffset) * 0.08;
+            tele.gfx.scale.set(pulse);
+          }
+        }
+
+        if (teleportCooldown > 0) teleportCooldown = Math.max(0, teleportCooldown - dtSeconds);
+        if (teleportPair && teleportCooldown <= 0) {
+          const atA = p.tileX === teleportPair.a.x && p.tileY === teleportPair.a.y;
+          const atB = p.tileX === teleportPair.b.x && p.tileY === teleportPair.b.y;
+          if (atA || atB) {
+            const dest = atA ? teleportPair.b : teleportPair.a;
+            p.tileX = dest.x;
+            p.tileY = dest.y;
+            p.state.tileX = dest.x;
+            p.state.tileY = dest.y;
+            p.pixelX = dest.x * TILE_SIZE + TILE_SIZE / 2;
+            p.pixelY = dest.y * TILE_SIZE + TILE_SIZE / 2;
+            p.sprite!.container.x = p.pixelX;
+            p.sprite!.container.y = p.pixelY;
+            playerVelocityRef.current = { x: 0, y: 0 };
+            prevPlayerTileRef.current = { x: dest.x, y: dest.y };
+            camera.snapTo(p.pixelX, p.pixelY);
+
+            const elapsedMs = performance.now() - runTrackerRef.current.startTs;
+            runTrackerRef.current.path.push({ x: dest.x, y: dest.y, t: elapsedMs });
+            runTrackerRef.current.visited.add(`${dest.x},${dest.y}`);
+
+            teleportCooldown = TELEPORT_COOLDOWN_SECONDS;
+            showNotification('🌀 Teleport engaged!');
+          }
+        }
+
+        for (const coin of coinPickups) {
+          if (coin.collected) continue;
+          if (coin.tileX === p.tileX && coin.tileY === p.tileY) {
+            coin.collected = true;
+            coin.sprite.visible = false;
+            coin.sprite.destroy();
+            storeActionsRef.current.addCoins(coin.value);
+            storeActionsRef.current.addScore(5);
+            showNotification(`🪙 +${coin.value} coin`);
+          }
+        }
+
+        for (const chest of chestPickups) {
+          if (chest.isLooted) continue;
+
+          if (chest.source === 'tiled') {
+            const runtimeChest = chestByKey.get(chest.key);
+            if (runtimeChest?.hasBeenOpened) chest.isOpened = true;
+          } else if (!chest.isOpened) {
+            const dx = chest.tileX - p.tileX;
+            const dy = chest.tileY - p.tileY;
+            const near = Math.sqrt(dx * dx + dy * dy) <= 1.5;
+            if (near) {
+              chest.isOpened = true;
+              chest.sprite?.gotoAndPlay(0);
+            }
+          }
+
+          if (chest.isOpened && !chest.isLooted) {
+            chest.isLooted = true;
+            applyChestLoot(chest.loot);
+          }
+        }
+
         // ── PLAYER ATTACK (Space) ──────────────────────────────────
         if (p.attackCooldown > 0) p.attackCooldown -= dtSeconds;
 
@@ -1065,7 +1491,10 @@ export function GameScreen() {
             const dy = enemy.tileY - p.tileY;
             const dist = Math.sqrt(dx * dx + dy * dy);
             if (dist <= p.attackRange) {
-              enemy.takeDamage(p.attackDamage);
+              const damage = p.state.oneHitTimer > 0
+                ? Math.max(enemy.maxHealth, p.attackDamage * 3)
+                : p.attackDamage;
+              enemy.takeDamage(damage);
               hitCount++;
               if (!enemy.isAlive) {
                 p.kills++;
@@ -1087,6 +1516,11 @@ export function GameScreen() {
         if (attackVisualTimer > 0) {
           attackVisualTimer -= dt;
           if (attackVisualTimer <= 0) attackLayer.clear();
+        }
+
+        if (allyAttackVisualTimer > 0) {
+          allyAttackVisualTimer -= dt;
+          if (allyAttackVisualTimer <= 0) allyAttackLayer.clear();
         }
 
         // ── ITEMS ──────────────────────────────────────────────────
@@ -1493,6 +1927,51 @@ export function GameScreen() {
               >
                 {analyticsEnabled ? '🧠 Hide Analytics' : '🧠 Show Analytics'}
               </button>
+            </div>
+
+            <div style={{
+              marginTop: '20px',
+              padding: '12px 14px',
+              border: '1px solid rgba(200,168,80,0.25)',
+              borderRadius: '10px',
+              background: 'rgba(10,10,18,0.55)',
+              minWidth: '320px',
+              textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '0.8rem', color: 'var(--gold)', marginBottom: '8px' }}>ALLIES</div>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                {(Object.keys(ALLY_DEFS) as AllyKind[]).map((kind) => {
+                  const def = ALLY_DEFS[kind];
+                  const isUnlocked = unlockedAllies.includes(kind);
+                  const isActive = activeAlly === kind;
+                  const canAfford = coinCount >= def.cost;
+                  const label = isUnlocked
+                    ? (isActive ? 'Equipped' : 'Equip')
+                    : `Unlock (${def.cost}c)`;
+
+                  return (
+                    <button
+                      key={kind}
+                      className="btn btn-pixel"
+                      style={{
+                        minWidth: '140px',
+                        opacity: !isUnlocked && !canAfford ? 0.5 : 1,
+                        borderColor: isActive ? 'var(--green)' : 'var(--border-subtle)',
+                      }}
+                      onClick={() => {
+                        if (!isUnlocked) return tryUnlockAlly(kind);
+                        if (!isActive) equipAlly(kind);
+                      }}
+                    >
+                      {def.name}
+                      <div style={{ fontSize: '0.5rem', opacity: 0.8, marginTop: '4px' }}>{label}</div>
+                    </button>
+                  );
+                })}
+              </div>
+              <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+                Coins: {coinCount}
+              </div>
             </div>
             <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '12px' }}>
               <span style={{ color: '#aa66ff' }}>`</span> Toggle AI Panel

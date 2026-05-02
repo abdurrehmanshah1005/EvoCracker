@@ -28,6 +28,8 @@ export interface PlayerState {
   tilePenaltyTimer: number;
   isInvisible: boolean;
   invisibleTimer: number;
+  speedBoostTimer: number;
+  oneHitTimer: number;
 }
 
 // Radius helpers
@@ -211,6 +213,16 @@ export function updateItems(items: Item[], player: PlayerState, dt: number): voi
   if (player.invisibleTimer > 0) {
     player.invisibleTimer -= dt;
     if (player.invisibleTimer <= 0) player.isInvisible = false;
+  }
+
+  if (player.speedBoostTimer > 0) {
+    player.speedBoostTimer -= dt;
+    if (player.speedBoostTimer < 0) player.speedBoostTimer = 0;
+  }
+
+  if (player.oneHitTimer > 0) {
+    player.oneHitTimer -= dt;
+    if (player.oneHitTimer < 0) player.oneHitTimer = 0;
   }
 }
 

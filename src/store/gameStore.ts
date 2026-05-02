@@ -22,6 +22,8 @@ export type GameScreen =
   | 'evolution'
   | 'gameOver';
 
+export type AllyKind = 'scout' | 'striker';
+
 export interface EnemyAnalyticsData {
   entityId: number;
   enemyType: string;
@@ -170,10 +172,19 @@ interface GameState {
   playerHealth: number;
   playerMaxHealth: number;
   playerScore: number;
+  coinCount: number;
   playerItems: (string | null)[];
   setPlayerHealth: (health: number) => void;
   setPlayerMaxHealth: (maxHealth: number) => void;
   addScore: (points: number) => void;
+  addCoins: (amount: number) => void;
+  spendCoins: (amount: number) => void;
+
+  // Allies
+  unlockedAllies: AllyKind[];
+  activeAlly: AllyKind | null;
+  unlockAlly: (kind: AllyKind) => void;
+  setActiveAlly: (kind: AllyKind | null) => void;
 
   // Evolution + learning
   generation: number;
@@ -264,10 +275,24 @@ export const useGameStore = create<GameState>()(
       playerHealth: 100,
       playerMaxHealth: 100,
       playerScore: 0,
+      coinCount: 0,
       playerItems: [null, null, null, null],
       setPlayerHealth: (health) => set({ playerHealth: health }),
       setPlayerMaxHealth: (maxHealth) => set({ playerMaxHealth: maxHealth }),
       addScore: (points) => set((s) => ({ playerScore: s.playerScore + points })),
+      addCoins: (amount) => set((s) => ({ coinCount: s.coinCount + Math.max(0, amount) })),
+      spendCoins: (amount) => set((s) => ({ coinCount: Math.max(0, s.coinCount - Math.max(0, amount)) })),
+
+      // Allies
+      unlockedAllies: [],
+      activeAlly: null,
+      unlockAlly: (kind) =>
+        set((s) => {
+          if (s.unlockedAllies.includes(kind)) return s;
+          const next = [...s.unlockedAllies, kind];
+          return { unlockedAllies: next, activeAlly: s.activeAlly ?? kind };
+        }),
+      setActiveAlly: (kind) => set({ activeAlly: kind }),
 
       // Evolution + learning
       generation: 0,
@@ -386,6 +411,9 @@ export const useGameStore = create<GameState>()(
         autoShowIterationGraphs: state.autoShowIterationGraphs,
         musicEnabled: state.musicEnabled,
         currentTrack: state.currentTrack,
+        coinCount: state.coinCount,
+        unlockedAllies: state.unlockedAllies,
+        activeAlly: state.activeAlly,
       }),
     }
   )
