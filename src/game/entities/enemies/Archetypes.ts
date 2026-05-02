@@ -123,7 +123,7 @@ export class Inquisitor extends EnemyBase {
       new Sequence('idsHunt', [
         new Condition('alerted', (b: Blackboard) => b.distanceToPlayer < this.visionRange),
         new Action('interrogate', (b: Blackboard) => {
-          this.alertState = AlertState.ALERT;
+          this.alertState = AlertState.CHASING;
           b.lastKnownPlayerX = b.playerX;
           b.lastKnownPlayerY = b.playerY;
           // Mark room as searched
@@ -175,7 +175,7 @@ export class LeashedGuard extends EnemyBase {
       new Sequence('guardPost', [
         new Condition('playerInRadius', (b: Blackboard) => b.distanceToPlayer < this.visionRange),
         new Action('challenge', (_b: Blackboard) => {
-          this.alertState = AlertState.ALERT;
+          this.alertState = AlertState.CHASING;
           return BTStatus.RUNNING;
         }),
       ]),
@@ -372,7 +372,7 @@ export class Archer extends EnemyBase {
       new Sequence('shoot', [
         new Condition('inRange', (b: Blackboard) => b.distanceToPlayer < this.rangedRange && b.distanceToPlayer > 2),
         new Action('fire', (_b: Blackboard) => {
-          this.alertState = AlertState.ALERT;
+          this.alertState = AlertState.CHASING;
           this.inPosition = true;
           return BTStatus.RUNNING;
         }),

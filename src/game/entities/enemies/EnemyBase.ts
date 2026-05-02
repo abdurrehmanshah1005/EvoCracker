@@ -72,9 +72,16 @@ export class EnemyBase {
   }
 
   set alertState(newState: AlertState) {
-    if (this._alertState !== AlertState.CHASING && newState === AlertState.CHASING) {
+    // Only trigger stun + alert effect when transitioning from a calm state to CHASING.
+    // Transitions from ALERT→CHASING must NOT re-stun, otherwise BT/VisionSystem
+    // oscillation creates an infinite stun loop (the Ogre/Heroine/Demon stuck bug).
+    if (
+      newState === AlertState.CHASING &&
+      this._alertState !== AlertState.CHASING &&
+      this._alertState !== AlertState.ALERT
+    ) {
       this.triggerAlertEffect();
-      this.stunnedTimer = 0.5; // Stun the enemy briefly so they stop and play the effect
+      this.stunnedTimer = 0.5;
     }
     this._alertState = newState;
   }
