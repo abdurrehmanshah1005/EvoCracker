@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { Application, Container, Graphics, Text, TextStyle, Sprite, AnimatedSprite } from 'pixi.js';
-import { useGameStore, type AllyKind, type IterationProofData } from '@store/gameStore';
+import { useGameStore, type AliasKind, type IterationProofData } from '@store/gameStore';
 import { InputManager } from '@core/InputManager';
 import { Camera } from '@core/Camera';
 import { Grid } from '@ai/pathfinding/Grid';
@@ -32,6 +32,15 @@ import {
 import { EventBus, GameEvents } from '@core/EventBus';
 import type { EnemyBase } from '@game/entities/enemies/EnemyBase';
 import { randomChoice, randomInt, shuffle } from '@utils/random';
+import {
+  ALIAS_DEFS,
+  ALIAS_ORDER,
+  ALIAS_AEGIS_REDUCTION,
+  ALIAS_SHOP_MIN_FLOOR,
+  ALIAS_STRIKER_DAMAGE,
+  ALIAS_STRIKER_RANGE,
+  ALIAS_SWIFT_MULTIPLIER,
+} from '@game/aliases/AliasDefs';
 import { loadTileset, isTilesetLoaded, getTileTexture, getWallTexture, loadItemAnimations, getTiledTileTexture, isTiledTilesetLoaded, getTiledTileAnimation, stripTiledFlipFlags } from '@core/DungeonTilesetLoader';
 
 const MAX_INTELLIGENCE_RUNS = 1;
@@ -63,11 +72,6 @@ const ORB_INVIS_DURATION = 8;
 const ORB_ONE_HIT_DURATION = 6;
 const ORB_SPEED_DURATION = 10;
 const ORB_SPEED_MULTIPLIER = 1.35;
-const ALLY_ASSIST_SPEED_MULTIPLIER = 1.08;
-const ALLY_STRIKER_COOLDOWN = 1.6;
-const ALLY_STRIKER_RANGE = 4.5;
-const ALLY_STRIKER_DAMAGE = 9;
-
 type ChestLootKind = 'invisibility' | 'oneHit' | 'speed';
 type ChestLoot = { kind: ChestLootKind; duration: number };
 
@@ -93,19 +97,6 @@ type CoinPickup = {
 
 type TeleporterPair = { a: { x: number; y: number }; b: { x: number; y: number } };
 type TeleporterVisual = { tileX: number; tileY: number; gfx: Graphics; pulseOffset: number };
-
-const ALLY_DEFS: Record<AllyKind, { name: string; cost: number; description: string }> = {
-  scout: {
-    name: 'Scout Wisp',
-    cost: 8,
-    description: 'Assist ally: +8% move speed.',
-  },
-  striker: {
-    name: 'Striker Wisp',
-    cost: 22,
-    description: 'Attack ally: strikes nearby enemies periodically.',
-  },
-};
 
 const PROOF_GENE_KEYS = [
   'speed',
@@ -320,6 +311,7 @@ export function GameScreen() {
   const trapdoorReturnTimerRef = useRef(0);
   const floorClearedRef = useRef(false);
   const floorAdvancePendingRef = useRef(false);
+  const aliasShopNotifiedRef = useRef(false);
   const allSpawnedEnemiesRef = useRef<EnemyBase[]>([]);
   const evolvingPopulationRef = useRef<Genome[]>([]);
   const intelligenceRunRef = useRef(1);
@@ -386,9 +378,6 @@ export function GameScreen() {
   const currentDifficulty = useGameStore((s) => s.currentDifficulty);
   const iteration = useGameStore((s) => s.iteration);
   const learnedPopulation = useGameStore((s) => s.population);
-  const coinCount = useGameStore((s) => s.coinCount);
-  const unlockedAllies = useGameStore((s) => s.unlockedAllies);
-  const activeAlly = useGameStore((s) => s.activeAlly);
 
   // Store action refs — these never change identity, but using refs
   // prevents initGame from being recreated when other state changes
@@ -402,8 +391,6 @@ export function GameScreen() {
     addScore: useGameStore.getState().addScore,
     addCoins: useGameStore.getState().addCoins,
     spendCoins: useGameStore.getState().spendCoins,
-    unlockAlly: useGameStore.getState().unlockAlly,
-    setActiveAlly: useGameStore.getState().setActiveAlly,
     setScreen: useGameStore.getState().setScreen,
     togglePause: useGameStore.getState().togglePause,
     setPaused: useGameStore.getState().setPaused,
@@ -436,23 +423,6 @@ export function GameScreen() {
     if (notifTimerRef.current) clearTimeout(notifTimerRef.current);
     notifTimerRef.current = setTimeout(() => setNotification(null), 3000);
   }, []);
-
-  const tryUnlockAlly = useCallback((kind: AllyKind) => {
-    const def = ALLY_DEFS[kind];
-    if (coinCount < def.cost) {
-      showNotification(`Need ${def.cost} coins to unlock ${def.name}.`);
-      return;
-    }
-    storeActionsRef.current.spendCoins(def.cost);
-    storeActionsRef.current.unlockAlly(kind);
-    storeActionsRef.current.setActiveAlly(kind);
-    showNotification(`Unlocked ${def.name}!`);
-  }, [coinCount, showNotification]);
-
-  const equipAlly = useCallback((kind: AllyKind) => {
-    storeActionsRef.current.setActiveAlly(kind);
-    showNotification(`${ALLY_DEFS[kind].name} equipped.`);
-  }, [showNotification]);
 
   const initGame = useCallback(async (signal: AbortSignal) => {
     if (!canvasRef.current) return;
@@ -569,18 +539,22 @@ export function GameScreen() {
       worldContainer.addChild(attackLayer);
       attackVisualRef.current = attackLayer;
 
-      const allyLayer = new Container();
-      allyLayer.label = 'allies';
-      allyLayer.zIndex = 14;
-      worldContainer.addChild(allyLayer);
+      const aliasLayer = new Container();
+      aliasLayer.label = 'aliases';
+      aliasLayer.zIndex = 14;
+      worldContainer.addChild(aliasLayer);
 
-      const allyOrb = new Graphics();
-      allyOrb.visible = false;
-      allyLayer.addChild(allyOrb);
+      const aliasOrb = new Graphics();
+      aliasOrb.visible = false;
+      aliasLayer.addChild(aliasOrb);
 
-      const allyAttackLayer = new Graphics();
-      allyAttackLayer.zIndex = 44;
-      worldContainer.addChild(allyAttackLayer);
+      const aliasArrow = new Graphics();
+      aliasArrow.visible = false;
+      aliasLayer.addChild(aliasArrow);
+
+      const aliasAttackLayer = new Graphics();
+      aliasAttackLayer.zIndex = 44;
+      worldContainer.addChild(aliasAttackLayer);
 
       // ── Generate dungeon ──────────────────────────────────────────
       const biome = getBiomeForFloor(currentFloor);
@@ -1118,19 +1092,24 @@ export function GameScreen() {
         showNotification(`⚡ Orb of Haste — ${loot.duration}s speed`);
       };
 
-      const setAllyOrbStyle = (kind: AllyKind | null) => {
-        allyOrb.clear();
+      const setAliasVisualStyle = (kind: AliasKind | null) => {
+        aliasOrb.clear();
+        aliasArrow.clear();
         if (!kind) {
-          allyOrb.visible = false;
+          aliasOrb.visible = false;
+          aliasArrow.visible = false;
           return;
         }
 
-        const color = kind === 'scout' ? 0x66ccff : 0xff8844;
-        allyOrb.circle(0, 0, 8);
-        allyOrb.fill({ color, alpha: 0.45 });
-        allyOrb.circle(0, 0, 12);
-        allyOrb.stroke({ color, width: 2, alpha: 0.9 });
-        allyOrb.visible = true;
+        const color = ALIAS_DEFS[kind].color;
+        // Draw a small "F"-shaped companion.
+        aliasOrb.rect(-6, -10, 4, 20);
+        aliasOrb.rect(-6, -10, 12, 4);
+        aliasOrb.rect(-6, -2, 10, 4);
+        aliasOrb.fill({ color, alpha: 0.8 });
+        aliasOrb.stroke({ color: 0xffffff, width: 1, alpha: 0.25 });
+        aliasOrb.visible = true;
+        aliasArrow.visible = kind === 'guide';
       };
 
       // ── Events ────────────────────────────────────────────────────
@@ -1154,9 +1133,8 @@ export function GameScreen() {
       let attackVisualTimer = 0;
       let playerAttackAnimTimer = 0;
       let teleportCooldown = 0;
-      let allyAttackCooldown = 0;
-      let allyKindCached: AllyKind | null = null;
-      let allyAttackVisualTimer = 0;
+      let aliasKindCached: AliasKind | null = null;
+      let aliasAttackVisualTimer = 0;
 
       // ══════════════════════════════════════════════════════════════
       // GAME LOOP
@@ -1250,8 +1228,8 @@ export function GameScreen() {
         const zone = getTelemetryZone(p.tileX, p.tileY);
         runTrackerRef.current.zoneTime[zone] = (runTrackerRef.current.zoneTime[zone] ?? 0) + dtSeconds;
 
-        const activeAllyNow = useGameStore.getState().activeAlly;
-        const allySpeedBoost = activeAllyNow === 'scout' ? ALLY_ASSIST_SPEED_MULTIPLIER : 1;
+        const activeAliasNow = useGameStore.getState().activeAlias;
+        const aliasSpeedBoost = activeAliasNow === 'swift' ? ALIAS_SWIFT_MULTIPLIER : 1;
 
         const moveVec = input.getMovementVector();
         const moveX = moveVec.x;
@@ -1284,7 +1262,7 @@ export function GameScreen() {
         const speedBoost = p.state.speedBoostTimer > 0 ? ORB_SPEED_MULTIPLIER : 1;
         const moveSpeed = (p.state.isInvisible ? basePlayerMoveSpeed + 40 : basePlayerMoveSpeed)
           * sprintBoost
-          * allySpeedBoost
+          * aliasSpeedBoost
           * speedBoost
           * dtSeconds;
 
@@ -1350,48 +1328,38 @@ export function GameScreen() {
           glowChild.scale.set(pulse);
         }
 
-        if (activeAllyNow !== allyKindCached) {
-          allyKindCached = activeAllyNow;
-          setAllyOrbStyle(activeAllyNow);
+        if (activeAliasNow !== aliasKindCached) {
+          aliasKindCached = activeAliasNow;
+          setAliasVisualStyle(activeAliasNow);
         }
 
-        if (activeAllyNow) {
+        if (activeAliasNow) {
           const bob = Math.sin(Date.now() * 0.006) * 3;
-          allyOrb.x = p.pixelX + 16;
-          allyOrb.y = p.pixelY - 18 + bob;
-        }
+          aliasOrb.x = p.pixelX + 16;
+          aliasOrb.y = p.pixelY - 18 + bob;
 
-        if (activeAllyNow === 'striker') {
-          allyAttackCooldown = Math.max(0, allyAttackCooldown - dtSeconds);
-          if (allyAttackCooldown <= 0) {
-            let target: EnemyBase | null = null;
-            let bestDist = Infinity;
-            for (const enemy of enemiesRef.current) {
-              if (!enemy.isAlive) continue;
-              const dx = enemy.tileX - p.tileX;
-              const dy = enemy.tileY - p.tileY;
-              const dist = Math.sqrt(dx * dx + dy * dy);
-              if (dist <= ALLY_STRIKER_RANGE && dist < bestDist) {
-                bestDist = dist;
-                target = enemy;
-              }
-            }
-
-            if (target) {
-              const damage = ALLY_STRIKER_DAMAGE + Math.round(currentFloor * 1.5);
-              target.takeDamage(damage);
-              allyAttackCooldown = ALLY_STRIKER_COOLDOWN;
-              allyAttackVisualTimer = 0.2;
-              allyAttackLayer.clear();
-              allyAttackLayer.moveTo(p.pixelX, p.pixelY - 12);
-              allyAttackLayer.lineTo(target.pixelX, target.pixelY - 12);
-              allyAttackLayer.stroke({ color: 0xff8844, width: 2, alpha: 0.7 });
-              allyAttackLayer.circle(target.pixelX, target.pixelY - 12, 8);
-              allyAttackLayer.stroke({ color: 0xff8844, width: 2, alpha: 0.7 });
-            }
+          if (activeAliasNow === 'guide') {
+            const dx = dungeon.exitPoint.x - p.tileX;
+            const dy = dungeon.exitPoint.y - p.tileY;
+            const angle = Math.atan2(dy, dx);
+            const arrowLen = 18;
+            aliasArrow.clear();
+            aliasArrow.moveTo(0, 0);
+            aliasArrow.lineTo(arrowLen, 0);
+            aliasArrow.stroke({ color: ALIAS_DEFS.guide.color, width: 2, alpha: 0.9 });
+            aliasArrow.moveTo(arrowLen, 0);
+            aliasArrow.lineTo(arrowLen - 6, -4);
+            aliasArrow.stroke({ color: ALIAS_DEFS.guide.color, width: 2, alpha: 0.9 });
+            aliasArrow.moveTo(arrowLen, 0);
+            aliasArrow.lineTo(arrowLen - 6, 4);
+            aliasArrow.stroke({ color: ALIAS_DEFS.guide.color, width: 2, alpha: 0.9 });
+            aliasArrow.x = p.pixelX + 22;
+            aliasArrow.y = p.pixelY - 30;
+            aliasArrow.rotation = angle;
+            aliasArrow.visible = true;
+          } else {
+            aliasArrow.visible = false;
           }
-        } else {
-          allyAttackCooldown = 0;
         }
 
         // ── TELEPORTERS + PICKUPS ───────────────────────────────
@@ -1439,6 +1407,15 @@ export function GameScreen() {
             storeActionsRef.current.addCoins(coin.value);
             storeActionsRef.current.addScore(5);
             showNotification(`🪙 +${coin.value} coin`);
+
+            if (!aliasShopNotifiedRef.current && currentFloor >= ALIAS_SHOP_MIN_FLOOR) {
+              const nextCoins = useGameStore.getState().coinCount;
+              const minCost = ALIAS_DEFS[ALIAS_ORDER[0]].cost;
+              if (nextCoins >= minCost) {
+                aliasShopNotifiedRef.current = true;
+                showNotification('Alias Shop unlocked on the main menu.');
+              }
+            }
           }
         }
 
@@ -1505,6 +1482,28 @@ export function GameScreen() {
             }
           }
 
+          if (activeAliasNow === 'striker') {
+            const strikeDamage = ALIAS_STRIKER_DAMAGE;
+            let struck = 0;
+            aliasAttackLayer.clear();
+            for (const enemy of enemiesRef.current) {
+              if (!enemy.isAlive) continue;
+              const dx = enemy.tileX - p.tileX;
+              const dy = enemy.tileY - p.tileY;
+              const dist = Math.sqrt(dx * dx + dy * dy);
+              if (dist <= ALIAS_STRIKER_RANGE) {
+                enemy.takeDamage(strikeDamage);
+                aliasAttackLayer.moveTo(p.pixelX, p.pixelY - 10);
+                aliasAttackLayer.lineTo(enemy.pixelX, enemy.pixelY - 12);
+                aliasAttackLayer.stroke({ color: ALIAS_DEFS.striker.color, width: 2, alpha: 0.7 });
+                struck += 1;
+              }
+            }
+            if (struck > 0) {
+              aliasAttackVisualTimer = 0.2;
+            }
+          }
+
           attackVisualTimer = 0.2;
           attackLayer.clear();
           attackLayer.circle(p.pixelX, p.pixelY, p.attackRange * TILE_SIZE);
@@ -1518,9 +1517,9 @@ export function GameScreen() {
           if (attackVisualTimer <= 0) attackLayer.clear();
         }
 
-        if (allyAttackVisualTimer > 0) {
-          allyAttackVisualTimer -= dt;
-          if (allyAttackVisualTimer <= 0) allyAttackLayer.clear();
+        if (aliasAttackVisualTimer > 0) {
+          aliasAttackVisualTimer -= dt;
+          if (aliasAttackVisualTimer <= 0) aliasAttackLayer.clear();
         }
 
         // ── ITEMS ──────────────────────────────────────────────────
@@ -1640,7 +1639,8 @@ export function GameScreen() {
             if (edist <= 1.5) {
               enemy.attackTimer = enemy.attackCooldown;
               enemy.gameSprite.setAnimation('attack');
-              const dmg = enemy.attackDamage;
+              const aegisReduction = activeAliasNow === 'aegis' ? ALIAS_AEGIS_REDUCTION : 0;
+              const dmg = Math.max(1, Math.round(enemy.attackDamage * (1 - aegisReduction)));
               enemy.performance.damageDealt += dmg;
               p.health = Math.max(0, p.health - dmg);
               runTrackerRef.current.damageTaken += dmg;
@@ -1730,7 +1730,8 @@ export function GameScreen() {
         const playerTile = dungeon.tiles[p.tileY]?.[p.tileX];
         const playerOnInteractiveSpear = isPlayerOnInteractiveSpear(tilemapAnimRuntime, p.tileX, p.tileY);
         if (playerTile === TileType.FLOOR_TRAP && !playerOnInteractiveSpear) {
-          const trapDmg = 15 * dt;
+          const aegisReduction = activeAliasNow === 'aegis' ? ALIAS_AEGIS_REDUCTION : 0;
+          const trapDmg = 15 * dt * (1 - aegisReduction);
           p.health = Math.max(0, p.health - trapDmg);
           runTrackerRef.current.damageTaken += trapDmg;
           storeActionsRef.current.setPlayerHealth(Math.round(p.health));
@@ -1742,8 +1743,10 @@ export function GameScreen() {
         }
 
         updateInteractiveTileAnimations(tilemapAnimRuntime, p.tileX, p.tileY, dtSeconds, currentDifficulty, (damage) => {
-          p.health = Math.max(0, p.health - damage);
-          runTrackerRef.current.damageTaken += damage;
+          const aegisReduction = activeAliasNow === 'aegis' ? ALIAS_AEGIS_REDUCTION : 0;
+          const finalDamage = damage * (1 - aegisReduction);
+          p.health = Math.max(0, p.health - finalDamage);
+          runTrackerRef.current.damageTaken += finalDamage;
           storeActionsRef.current.setPlayerHealth(Math.round(p.health));
           if (p.health <= 0 && !playerDeadRef.current) {
             finalizeLearning('died');
@@ -1929,50 +1932,6 @@ export function GameScreen() {
               </button>
             </div>
 
-            <div style={{
-              marginTop: '20px',
-              padding: '12px 14px',
-              border: '1px solid rgba(200,168,80,0.25)',
-              borderRadius: '10px',
-              background: 'rgba(10,10,18,0.55)',
-              minWidth: '320px',
-              textAlign: 'center',
-            }}>
-              <div style={{ fontSize: '0.8rem', color: 'var(--gold)', marginBottom: '8px' }}>ALLIES</div>
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                {(Object.keys(ALLY_DEFS) as AllyKind[]).map((kind) => {
-                  const def = ALLY_DEFS[kind];
-                  const isUnlocked = unlockedAllies.includes(kind);
-                  const isActive = activeAlly === kind;
-                  const canAfford = coinCount >= def.cost;
-                  const label = isUnlocked
-                    ? (isActive ? 'Equipped' : 'Equip')
-                    : `Unlock (${def.cost}c)`;
-
-                  return (
-                    <button
-                      key={kind}
-                      className="btn btn-pixel"
-                      style={{
-                        minWidth: '140px',
-                        opacity: !isUnlocked && !canAfford ? 0.5 : 1,
-                        borderColor: isActive ? 'var(--green)' : 'var(--border-subtle)',
-                      }}
-                      onClick={() => {
-                        if (!isUnlocked) return tryUnlockAlly(kind);
-                        if (!isActive) equipAlly(kind);
-                      }}
-                    >
-                      {def.name}
-                      <div style={{ fontSize: '0.5rem', opacity: 0.8, marginTop: '4px' }}>{label}</div>
-                    </button>
-                  );
-                })}
-              </div>
-              <div style={{ fontSize: '0.55rem', color: 'var(--text-muted)', marginTop: '8px' }}>
-                Coins: {coinCount}
-              </div>
-            </div>
             <div style={{ fontSize: '0.6rem', color: 'var(--text-muted)', marginTop: '12px' }}>
               <span style={{ color: '#aa66ff' }}>`</span> Toggle AI Panel
             </div>

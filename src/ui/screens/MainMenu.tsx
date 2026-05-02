@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useGameStore } from '@store/gameStore';
+import { getAliasMinCost, ALIAS_SHOP_MIN_FLOOR } from '@game/aliases/AliasDefs';
 import type { GameScreen } from '@store/gameStore';
 
 /**
@@ -8,6 +9,10 @@ import type { GameScreen } from '@store/gameStore';
  */
 export function MainMenu() {
   const setScreen = useGameStore((s) => s.setScreen);
+  const currentFloor = useGameStore((s) => s.currentFloor);
+  const coinCount = useGameStore((s) => s.coinCount);
+  const unlockedAliases = useGameStore((s) => s.unlockedAliases);
+  const canAccessAliasShop = currentFloor >= ALIAS_SHOP_MIN_FLOOR && (coinCount >= getAliasMinCost() || unlockedAliases.length > 0);
 
   const handleMenuClick = useCallback((screen: GameScreen) => {
     setScreen(screen);
@@ -64,6 +69,15 @@ export function MainMenu() {
             onClick={() => handleMenuClick('algorithmLab')}
           >
             🧪 Algorithm Lab
+          </button>
+
+          <button
+            className="btn btn-pixel"
+            onClick={() => handleMenuClick('aliasShop')}
+            disabled={!canAccessAliasShop}
+            style={{ opacity: canAccessAliasShop ? 1 : 0.5 }}
+          >
+            ✨ Alias Shop
           </button>
 
           <button

@@ -7,6 +7,7 @@ import { CharacterSelectScreen } from '@ui/screens/CharacterSelectScreen';
 import { MapSelectScreen } from '@ui/screens/MapSelectScreen';
 import { LeaderboardScreen } from '@ui/screens/LeaderboardScreen';
 import { MusicPlayer } from '@ui/components/MusicPlayer';
+import { AliasShopScreen } from '@ui/screens/AliasShopScreen';
 
 function App() {
   const currentScreen = useGameStore((s) => s.currentScreen);
@@ -29,6 +30,8 @@ function App() {
         return <SettingsScreen />;
       case 'leaderboard':
         return <LeaderboardScreen />;
+      case 'aliasShop':
+        return <AliasShopScreen />;
       default:
         return <MainMenu />;
     }

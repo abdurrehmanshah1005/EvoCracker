@@ -20,9 +20,10 @@ export type GameScreen =
   | 'settings'
   | 'leaderboard'
   | 'evolution'
+  | 'aliasShop'
   | 'gameOver';
 
-export type AllyKind = 'scout' | 'striker';
+export type AliasKind = 'guide' | 'swift' | 'striker' | 'aegis';
 
 export interface EnemyAnalyticsData {
   entityId: number;
@@ -180,11 +181,11 @@ interface GameState {
   addCoins: (amount: number) => void;
   spendCoins: (amount: number) => void;
 
-  // Allies
-  unlockedAllies: AllyKind[];
-  activeAlly: AllyKind | null;
-  unlockAlly: (kind: AllyKind) => void;
-  setActiveAlly: (kind: AllyKind | null) => void;
+  // Aliases
+  unlockedAliases: AliasKind[];
+  activeAlias: AliasKind | null;
+  unlockAlias: (kind: AliasKind) => void;
+  setActiveAlias: (kind: AliasKind | null) => void;
 
   // Evolution + learning
   generation: number;
@@ -283,16 +284,16 @@ export const useGameStore = create<GameState>()(
       addCoins: (amount) => set((s) => ({ coinCount: s.coinCount + Math.max(0, amount) })),
       spendCoins: (amount) => set((s) => ({ coinCount: Math.max(0, s.coinCount - Math.max(0, amount)) })),
 
-      // Allies
-      unlockedAllies: [],
-      activeAlly: null,
-      unlockAlly: (kind) =>
+      // Aliases
+      unlockedAliases: [],
+      activeAlias: null,
+      unlockAlias: (kind) =>
         set((s) => {
-          if (s.unlockedAllies.includes(kind)) return s;
-          const next = [...s.unlockedAllies, kind];
-          return { unlockedAllies: next, activeAlly: s.activeAlly ?? kind };
+          if (s.unlockedAliases.includes(kind)) return s;
+          const next = [...s.unlockedAliases, kind];
+          return { unlockedAliases: next, activeAlias: s.activeAlias ?? kind };
         }),
-      setActiveAlly: (kind) => set({ activeAlly: kind }),
+      setActiveAlias: (kind) => set({ activeAlias: kind }),
 
       // Evolution + learning
       generation: 0,
@@ -412,8 +413,8 @@ export const useGameStore = create<GameState>()(
         musicEnabled: state.musicEnabled,
         currentTrack: state.currentTrack,
         coinCount: state.coinCount,
-        unlockedAllies: state.unlockedAllies,
-        activeAlly: state.activeAlly,
+        unlockedAliases: state.unlockedAliases,
+        activeAlias: state.activeAlias,
       }),
     }
   )
