@@ -15,7 +15,7 @@ import {
   createBlackboard, type Blackboard,
 } from '@ai/behavior/BehaviorTree';
 import { BTStatus } from '@utils/constants';
-import { createRandomGenome, sampleAlgorithmFromGenome, type Genome } from '@ai/evolution/GeneticAlgorithm';
+import { createRandomGenome, type Genome } from '@ai/evolution/GeneticAlgorithm';
 import { PathfindingClient } from '@ai/worker/PathfindingClient';
 import type { Grid } from '@ai/pathfinding/Grid';
 import { lerp } from '@utils/math';
@@ -358,7 +358,7 @@ export class EnemyBase {
 
   getActiveAlgorithm(): AlgorithmType {
     if (this.isJammed) return AlgorithmType.DFS;
-    return sampleAlgorithmFromGenome(this.genome);
+    return ENEMY_DEFAULT_ALGORITHM[this.type];
   }
 
   applyJammer(duration: number): void {
