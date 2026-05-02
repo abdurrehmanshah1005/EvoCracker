@@ -15,7 +15,7 @@ import {
   createBlackboard, type Blackboard,
 } from '@ai/behavior/BehaviorTree';
 import { BTStatus } from '@utils/constants';
-import { createRandomGenome, type Genome } from '@ai/evolution/GeneticAlgorithm';
+import { createRandomGenome, sampleAlgorithmFromGenome, type Genome } from '@ai/evolution/GeneticAlgorithm';
 import { PathfindingClient } from '@ai/worker/PathfindingClient';
 import type { Grid } from '@ai/pathfinding/Grid';
 import { lerp } from '@utils/math';
@@ -29,6 +29,7 @@ export interface EnemyPerformanceLive {
   survivalTime: number;
   tilesVisited: Set<string>;
   timeStuck: number;
+  cooperativeKills: number;
 }
 
 export class EnemyBase {
@@ -111,6 +112,7 @@ export class EnemyBase {
     survivalTime: 0,
     tilesVisited: new Set(),
     timeStuck: 0,
+    cooperativeKills: 0,
   };
 
   isAlive: boolean = true;
@@ -240,15 +242,22 @@ export class EnemyBase {
 
     if (this.currentPath.length === 0 || this.pathIndex >= this.currentPath.length) {
       if (!isAttacking) this.gameSprite.setAnimation('idle');
+      // Track time stuck when idle with no path
+      if (this.alertState === AlertState.CHASING || this.alertState === AlertState.ALERT) {
+        this.performance.timeStuck += dt;
+      }
       return;
     }
 
     if (!isAttacking) this.gameSprite.setAnimation('walk');
 
     // Accumulate movement budget (in tiles)
+    const prevTileX = this.tileX;
+    const prevTileY = this.tileY;
     this.moveAccumulator += this.speed * dt;
 
     // Consume accumulated tiles
+    let moved = false;
     while (this.moveAccumulator >= 1 && this.pathIndex < this.currentPath.length) {
       const next = this.currentPath[this.pathIndex];
       if (!next) break;
@@ -259,6 +268,7 @@ export class EnemyBase {
         this.tileY = next.y;
         this.pathIndex++;
         this.moveAccumulator -= 1;
+        moved = true;
       } else {
         // Path blocked — need reroute
         this.currentPath = [];
@@ -267,10 +277,14 @@ export class EnemyBase {
       }
     }
 
+    // Track time stuck when pursuing but unable to move
+    if (!moved && (this.alertState === AlertState.CHASING || this.alertState === AlertState.ALERT)) {
+      this.performance.timeStuck += dt;
+    }
+
     // Cap accumulator to prevent teleporting after lag
     if (this.moveAccumulator > 2) this.moveAccumulator = 0;
   }
-
   /** Request a new path asynchronously */
   async requestPath(grid: Grid, targetX: number, targetY: number): Promise<void> {
     if (this.pathRequestPending) return;
@@ -326,10 +340,14 @@ export class EnemyBase {
     }
   }
 
-  /** Get a random patrol destination near home */
+  /** Get a random patrol destination near home, scaled by patrolVariance gene */
   getPatrolTarget(grid: Grid): { x: number; y: number } | null {
-    const radius = 6;
-    for (let attempt = 0; attempt < 10; attempt++) {
+    // patrolVariance: 0 = tight patrol (radius 2-4), 1 = wide patrol (radius 5-14)
+    const variance = this.genome.patrolVariance ?? 0.5;
+    const baseRadius = 2 + variance * 12;
+    const radius = Math.round(baseRadius);
+    const maxAttempts = 15 + Math.round(variance * 10);
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const rx = this.homeX + randomInt(-radius, radius);
       const ry = this.homeY + randomInt(-radius, radius);
       const node = grid.getNode(rx, ry);
@@ -340,11 +358,7 @@ export class EnemyBase {
 
   getActiveAlgorithm(): AlgorithmType {
     if (this.isJammed) return AlgorithmType.DFS;
-    // Always use the enemy type's designated algorithm so the analytics
-    // and gameplay remain consistent (Toad→BFS, Ghost→DFS, etc.).
-    // The genome's algorithm weights influence evolution/fitness, NOT
-    // runtime pathfinding selection.
-    return ENEMY_DEFAULT_ALGORITHM[this.type];
+    return sampleAlgorithmFromGenome(this.genome);
   }
 
   applyJammer(duration: number): void {
@@ -402,6 +416,8 @@ export class EnemyBase {
   }
 
   protected buildDefaultTree(): BehaviorTree {
+    const ambushChance = this.genome.ambushTendency ?? 0.5;
+
     const root = new Selector('root', [
       new Sequence('chase', [
         new Condition('playerClose', (bb: Blackboard) => bb.distanceToPlayer < this.visionRange),
@@ -409,6 +425,23 @@ export class EnemyBase {
           this.alertState = AlertState.CHASING;
           bb.lastKnownPlayerX = bb.playerX;
           bb.lastKnownPlayerY = bb.playerY;
+          return BTStatus.RUNNING;
+        }),
+      ]),
+      // Ambush behavior: if has last known position and ambush tendency is high, wait nearby
+      new Sequence('ambush', [
+        new Condition('hasLastKnown', (bb: Blackboard) =>
+          bb.lastKnownPlayerX >= 0 && bb.lastKnownPlayerY >= 0 && ambushChance > 0.4
+        ),
+        new Condition('ambushReady', (bb: Blackboard) => {
+          const dx = bb.playerX - (bb.lastKnownPlayerX ?? 0);
+          const dy = bb.playerY - (bb.lastKnownPlayerY ?? 0);
+          const distFromKnown = Math.sqrt(dx * dx + dy * dy);
+          // If player is within 3 tiles of last known position, spring ambush
+          return distFromKnown <= 3 && Math.random() < ambushChance;
+        }),
+        new Action('springAmbush', (bb: Blackboard) => {
+          this.alertState = AlertState.CHASING;
           return BTStatus.RUNNING;
         }),
       ]),

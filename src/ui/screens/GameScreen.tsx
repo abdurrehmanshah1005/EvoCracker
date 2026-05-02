@@ -518,14 +518,6 @@ export function GameScreen() {
         base.alive = true;
         base.id = `${base.id}-${Date.now()}-${spawnIndex}`;
 
-        // Increase pressure each rerun so enemies become noticeably sharper.
-        base.speed = Math.min(1, base.speed + challengeTier * 0.08);
-        base.vision = Math.min(1, base.vision + challengeTier * 0.1);
-        base.persistence = Math.min(1, base.persistence + challengeTier * 0.12);
-        base.aggression = Math.min(1, base.aggression + challengeTier * 0.08);
-        base.algorithmWeights.AStar *= 1 + challengeTier * 0.25;
-        base.algorithmWeights.GreedyBFS *= 1 + challengeTier * 0.15;
-
         return base;
       };
 
@@ -638,7 +630,7 @@ export function GameScreen() {
             survivalTime: enemy.performance.survivalTime,
             areaCovered: enemy.performance.tilesVisited.size,
             timeStuck: enemy.performance.timeStuck,
-            cooperativeKills: 0,
+            cooperativeKills: enemy.performance.cooperativeKills,
           }, enemy.genome, profile);
         }
 
@@ -1014,10 +1006,16 @@ export function GameScreen() {
         }
 
         // ── VISION SYSTEM ──────────────────────────────────────────
+        const prevAlerts = enemiesRef.current.map(e => e.alertState);
         updateVision(
           enemiesRef.current, p.tileX, p.tileY,
           p.state.isInvisible || p.state.isHiding, grid, dt
         );
+        enemiesRef.current.forEach((e, i) => {
+          if (prevAlerts[i] === AlertState.CHASING && e.alertState === AlertState.ALERT) {
+            playerProfileRef.current.totalFlees += 1;
+          }
+        });
 
         if (p.state.isHiding || p.state.isInvisible) {
           playerProfileRef.current.totalHides += 1;
@@ -1079,13 +1077,23 @@ export function GameScreen() {
               targetX = Math.max(1, Math.min(dungeon.width - 2, enemy.tileX + fdx * 4));
               targetY = Math.max(1, Math.min(dungeon.height - 2, enemy.tileY + fdy * 4));
             } else {
-              // DEBUG/TESTING OVERRIDE: Force enemies to path to player even when not alerted
-              // so the user can observe the algorithms without high-frequency pursuit logic.
-              targetX = p.tileX;
-              targetY = p.tileY;
-              
-              // Clear patrol target so they don't get stuck in patrol state
-              enemy.patrolTarget = null;
+              // IDLE state: patrol near home position
+              if (!enemy.patrolTarget) {
+                enemy.patrolTarget = enemy.getPatrolTarget(grid);
+              }
+              if (enemy.patrolTarget) {
+                targetX = enemy.patrolTarget.x;
+                targetY = enemy.patrolTarget.y;
+                // Pick a new patrol target when close to the current one
+                const pdx = enemy.tileX - enemy.patrolTarget.x;
+                const pdy = enemy.tileY - enemy.patrolTarget.y;
+                if (Math.sqrt(pdx * pdx + pdy * pdy) < 2) {
+                  enemy.patrolTarget = enemy.getPatrolTarget(grid);
+                }
+              } else {
+                targetX = enemy.homeX;
+                targetY = enemy.homeY;
+              }
             }
 
             enemy.requestPath(grid, targetX, targetY);
@@ -1106,6 +1114,22 @@ export function GameScreen() {
               p.health = Math.max(0, p.health - dmg);
               runTrackerRef.current.damageTaken += dmg;
               storeActionsRef.current.setPlayerHealth(p.health);
+
+              // Pack tendency: reward nearby pack-oriented enemies with cooperative kills
+              if (p.health <= 0) {
+                const killingEnemyPos = { x: enemy.tileX, y: enemy.tileY };
+                for (const packEnemy of enemiesRef.current) {
+                  if (!packEnemy.isAlive || packEnemy.id === enemy.id) continue;
+                  const packDx = packEnemy.tileX - killingEnemyPos.x;
+                  const packDy = packEnemy.tileY - killingEnemyPos.y;
+                  const packDist = Math.sqrt(packDx * packDx + packDy * packDy);
+                  // Within 5 tiles and has high pack tendency (>0.4) = cooperative kill credit
+                  const packChance = packEnemy.genome.packTendency ?? 0.5;
+                  if (packDist <= 5 && packChance > 0.3) {
+                    packEnemy.performance.cooperativeKills += packChance;
+                  }
+                }
+              }
 
               p.sprite!.setTint?.(0xff4444);
               setTimeout(() => { p.sprite!.setTint?.(0xffffff); }, 200);

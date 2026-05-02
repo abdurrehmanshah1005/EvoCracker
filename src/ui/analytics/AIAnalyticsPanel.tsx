@@ -564,15 +564,15 @@ function PlayerProfileTab({ profile }: { profile: PlayerProfile | null }) {
       </div>
       <div className="analytics-stat">
         <span className="analytics-stat-label">Dominant Zone</span>
-        <span className="analytics-stat-value">{profile.cleanedTelemetry.dominantZone}</span>
+        <span className="analytics-stat-value">{profile.cleanedTelemetry?.dominantZone || 'unknown'}</span>
       </div>
       <div className="analytics-stat">
         <span className="analytics-stat-label">Raw Key Events</span>
-        <span className="analytics-stat-value">{profile.rawKeystrokes.length}</span>
+        <span className="analytics-stat-value">{profile.rawKeystrokes?.length || 0}</span>
       </div>
       <div className="analytics-stat">
         <span className="analytics-stat-label">Movement Samples</span>
-        <span className="analytics-stat-value">{profile.movementCoordinates.length}</span>
+        <span className="analytics-stat-value">{profile.movementCoordinates?.length || 0}</span>
       </div>
     </div>
   );

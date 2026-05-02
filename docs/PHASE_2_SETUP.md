@@ -23,9 +23,7 @@ The `GameScreen` continuously monitors and records the following metrics into a 
 - **Combat Stats (Later floors):** Attack frequency, flee frequency, and items used.
 
 ## 3. Exiting the Calibration Round
-The game engine supports map-specific physical boundaries that act as the exit trigger for the Calibration Round. For example:
-- **Battleground 1 (`grinmap.json`):** The rightmost edge of the map (the wooden gates).
-- **Battleground 2 (`grinmap2.json`):** The bottom edge of the map (the golden line).
+The game engine supports map-specific physical boundaries that act as the exit trigger for the Calibration Round.
 
 When the player steps on these boundaries or the marked exit tile, the round ends immediately and triggers `finalizeLearning()`. Defeating enemies is no longer required for completion; combat is now pressure during the route to the exit.
 

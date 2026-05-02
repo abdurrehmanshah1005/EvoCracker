@@ -469,6 +469,39 @@ function applyPlaystyleBias(genome: Genome, profile: PlayerProfile): Genome {
       break;
   }
 
+  // Use Keystrokes (APM) to evolve speed and aggression
+  // If player makes lots of inputs, enemies become slightly faster/more aggressive
+  const isHighAPM = profile.rawKeystrokes.length > 300; 
+  if (isHighAPM) {
+    biased.speed = clamp(biased.speed + 0.04, 0, 1);
+    biased.aggression = clamp(biased.aggression + 0.02, 0, 1);
+  }
+
+  // Use Movement Samples (Path Straightness)
+  // If player moves erratically, increase vision to keep track of them
+  if (profile.pathStraightness < 0.5) {
+    biased.vision = clamp(biased.vision + 0.05, 0, 1);
+  }
+
+  // Use Dominant Zone to alter behavior
+  switch (profile.cleanedTelemetry.dominantZone) {
+    case 'hazard':
+      biased.cautiousness = clamp(biased.cautiousness + 0.08, 0, 1);
+      break;
+    case 'treasure':
+      biased.ambushTendency = clamp(biased.ambushTendency + 0.08, 0, 1);
+      break;
+    case 'exitZone':
+      biased.packTendency = clamp(biased.packTendency + 0.08, 0, 1); // Group up near exit
+      break;
+    case 'spawnZone':
+      biased.aggression = clamp(biased.aggression + 0.08, 0, 1); // Rush them at spawn
+      break;
+    case 'slowTerrain':
+      biased.speed = clamp(biased.speed + 0.06, 0, 1); // Need more speed in mud/water
+      break;
+  }
+
   return biased;
 }
 
