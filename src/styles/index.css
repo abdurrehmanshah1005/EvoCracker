@@ -1182,10 +1182,209 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: var(--space-lg);
+  gap: 0;
   background: var(--bg-void);
+  position: relative;
+  overflow: hidden;
 }
 
+/* Animated background vignette */
+.loading-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 40%, rgba(200, 168, 80, 0.04) 0%, transparent 60%),
+    radial-gradient(ellipse at 20% 80%, rgba(123, 77, 255, 0.03) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 80%, rgba(255, 68, 102, 0.03) 0%, transparent 50%);
+  animation: loadingBgPulse 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes loadingBgPulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+/* Floating particle dots */
+.loading-screen::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 10% 20%, rgba(200, 168, 80, 0.5), transparent),
+    radial-gradient(1px 1px at 30% 70%, rgba(200, 168, 80, 0.3), transparent),
+    radial-gradient(1px 1px at 55% 15%, rgba(123, 77, 255, 0.4), transparent),
+    radial-gradient(1px 1px at 75% 55%, rgba(200, 168, 80, 0.4), transparent),
+    radial-gradient(1px 1px at 90% 30%, rgba(255, 68, 102, 0.3), transparent),
+    radial-gradient(1.5px 1.5px at 20% 50%, rgba(200, 168, 80, 0.5), transparent),
+    radial-gradient(1px 1px at 65% 85%, rgba(123, 77, 255, 0.3), transparent),
+    radial-gradient(1px 1px at 85% 75%, rgba(200, 168, 80, 0.3), transparent),
+    radial-gradient(1px 1px at 45% 45%, rgba(255, 204, 68, 0.2), transparent);
+  animation: loadingParticlesDrift 8s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes loadingParticlesDrift {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-20px); }
+}
+
+.loading-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-lg);
+  animation: fadeIn 0.6s ease-out;
+}
+
+/* Torch icon container */
+.loading-torch {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.loading-torch-icon {
+  font-size: 2.8rem;
+  filter: drop-shadow(0 0 12px rgba(200, 168, 80, 0.5));
+  animation: loadingTorchFloat 2.5s ease-in-out infinite;
+}
+
+@keyframes loadingTorchFloat {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50% { transform: translateY(-6px) scale(1.05); }
+}
+
+/* Torch glow ring */
+.loading-torch::before {
+  content: '';
+  position: absolute;
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(200, 168, 80, 0.12) 0%, transparent 70%);
+  animation: loadingGlowPulse 2s ease-in-out infinite;
+}
+
+@keyframes loadingGlowPulse {
+  0%, 100% { transform: scale(0.9); opacity: 0.5; }
+  50% { transform: scale(1.15); opacity: 1; }
+}
+
+.loading-title {
+  font-family: var(--font-fantasy);
+  font-size: 2rem;
+  color: var(--gold);
+  text-shadow:
+    0 0 10px var(--gold-glow),
+    0 0 30px var(--gold-glow),
+    0 2px 4px rgba(0, 0, 0, 0.5);
+  letter-spacing: 3px;
+  text-align: center;
+  animation: fadeInDown 0.8s ease-out 0.2s both;
+}
+
+.loading-subtitle {
+  font-family: var(--font-pixel);
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  animation: fadeIn 1s ease-out 0.5s both;
+}
+
+/* Progress bar */
+.loading-progress-container {
+  width: 320px;
+  max-width: 80vw;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  animation: fadeIn 1s ease-out 0.6s both;
+}
+
+.loading-progress-track {
+  width: 100%;
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  position: relative;
+}
+
+.loading-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--gold-dark), var(--gold), var(--gold-light));
+  box-shadow: 0 0 8px var(--gold-glow);
+  transition: width 0.4s ease-out;
+  position: relative;
+}
+
+/* Shimmer on progress bar */
+.loading-progress-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.3) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
+
+.loading-progress-label {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-pixel);
+  font-size: 0.45rem;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+}
+
+.loading-progress-pct {
+  color: var(--gold);
+}
+
+/* Loading tips */
+.loading-tips {
+  margin-top: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: rgba(26, 26, 46, 0.4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  max-width: 420px;
+  text-align: center;
+  animation: fadeIn 1.2s ease-out 0.8s both;
+}
+
+.loading-tips-label {
+  font-family: var(--font-pixel);
+  font-size: 0.45rem;
+  color: var(--purple-light);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  margin-bottom: var(--space-xs);
+}
+
+.loading-tips-text {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  min-height: 2.5em;
+}
+
+/* Legacy simple spinner (fallback) */
 .loading-spinner {
   width: 48px;
   height: 48px;

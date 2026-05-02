@@ -148,6 +148,102 @@ import {
   drawDebugOverlays,
 } from '@game/world/TilemapRenderer';
 
+// ========================
+// LoadingScreen — Premium loading overlay with simulated progress + tips
+// ========================
+const LOADING_TIPS = [
+  "Enemies evolve their pathfinding algorithms based on your playstyle.",
+  "The first floor is a calibration round — explore freely!",
+  "Hold Shift to sprint. Stamina recharges after 30 seconds.",
+  "Press ` (backtick) to open the AI Analytics dashboard.",
+  "Each enemy has a unique genome controlling speed, vision, and aggression.",
+  "A* enemies are optimal pursuers. DFS enemies explore deep tunnels.",
+  "The Genetic Algorithm rewards enemies that challenge your playstyle.",
+  "Use items strategically — Smoke Bombs break enemy line of sight.",
+  "Your movement, keystrokes, and zone dwell time are all tracked.",
+  "Enemies with high pack tendency will try to swarm you together.",
+  "Ghost Cloak makes you temporarily invisible to all enemies.",
+  "The exit is marked with green stairs — reach it to advance.",
+];
+
+const LOADING_STAGES = [
+  'Initializing engine...',
+  'Loading sprite assets...',
+  'Generating dungeon layout...',
+  'Rendering tilemap...',
+  'Spawning entities...',
+  'Preparing AI systems...',
+];
+
+function LoadingScreen() {
+  const [progress, setProgress] = useState(0);
+  const [stageIndex, setStageIndex] = useState(0);
+  const [tipIndex, setTipIndex] = useState(() => Math.floor(Math.random() * LOADING_TIPS.length));
+
+  useEffect(() => {
+    // Simulate progress with staged acceleration
+    let frame: number;
+    let current = 0;
+    const tick = () => {
+      // Progress fast at start, slow in middle (actual loading), fast at end
+      const speed = current < 20 ? 1.8 : current < 50 ? 0.6 : current < 80 ? 0.35 : 0.8;
+      current = Math.min(92, current + speed * (0.5 + Math.random() * 0.5));
+      setProgress(current);
+      setStageIndex(Math.min(LOADING_STAGES.length - 1, Math.floor(current / (100 / LOADING_STAGES.length))));
+      if (current < 92) {
+        frame = requestAnimationFrame(tick);
+      }
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  // Rotate tips every 4 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTipIndex((prev) => (prev + 1) % LOADING_TIPS.length);
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="loading-screen">
+      <div className="loading-content">
+        {/* Floating torch icon */}
+        <div className="loading-torch">
+          <div className="loading-torch-icon">🔥</div>
+        </div>
+
+        {/* Title */}
+        <div className="loading-title">Entering the Dungeon</div>
+        <div className="loading-subtitle">{LOADING_STAGES[stageIndex]}</div>
+
+        {/* Progress bar */}
+        <div className="loading-progress-container">
+          <div className="loading-progress-track">
+            <div
+              className="loading-progress-fill"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <div className="loading-progress-label">
+            <span>LOADING</span>
+            <span className="loading-progress-pct">{Math.round(progress)}%</span>
+          </div>
+        </div>
+
+        {/* Tip */}
+        <div className="loading-tips">
+          <div className="loading-tips-label">💡 Tip</div>
+          <div className="loading-tips-text" key={tipIndex}>
+            {LOADING_TIPS[tipIndex]}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function GameScreen() {
   const canvasRef = useRef<HTMLDivElement>(null);
   const appRef = useRef<Application | null>(null);
@@ -1423,10 +1519,7 @@ export function GameScreen() {
       )}
 
       {!isLoaded && !showCalibrationLoading && (
-        <div className="loading-screen">
-          <div className="loading-spinner" />
-          <div className="loading-text">Generating dungeon...</div>
-        </div>
+        <LoadingScreen />
       )}
     </div>
   );
