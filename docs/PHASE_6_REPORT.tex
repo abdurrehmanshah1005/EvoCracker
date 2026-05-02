@@ -1,68 +1,644 @@
-\documentclass[12pt,a4paper]{article}
-\usepackage[utf8]{inputenc}
-\usepackage{geometry}
-\geometry{a4paper, margin=1in}
-\usepackage{hyperref}
-\usepackage{titlesec}
-\usepackage{graphicx}
-\usepackage{booktabs}
+% ============================================================================
+%  EvoCracker — Final Technical Report
+%  Architecture, Evolutionary AI, and the Game Brain
+% ============================================================================
 
-\title{\textbf{EvoCracker: Phase 6 Technical Report \\ \large System Stabilization \& AI Pathfinding Refinement}}
-\author{Development Team}
-\date{\today}
+\documentclass[11pt,a4paper,twoside]{article}
+
+% ── Encoding & fonts ─────────────────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{newtxtext,newtxmath}
+\usepackage{microtype}
+
+% ── Layout ────────────────────────────────────────────────────────────────
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[LE]{\small\textsc{EvoCracker · Technical Report}}
+\fancyhead[RO]{\small\textsc{\thepage}}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% ── Graphics & diagrams ──────────────────────────────────────────────────
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{
+  arrows.meta, positioning, shapes.geometric, shadows, backgrounds,
+  fit, calc, chains, matrix, decorations.pathreplacing
+}
+\usepackage{xcolor}
+
+% ── Palette ──────────────────────────────────────────────────────────────
+\definecolor{accentBlue}{HTML}{0066CC}
+\definecolor{accentGreen}{HTML}{2E7D32}
+\definecolor{accentOrange}{HTML}{E65100}
+\definecolor{accentPurple}{HTML}{6A1B9A}
+\definecolor{accentRed}{HTML}{C62828}
+\definecolor{boxFill}{HTML}{F5F5F5}
+\definecolor{boxBorder}{HTML}{BDBDBD}
+
+% ── Code & listings ──────────────────────────────────────────────────────
+\usepackage{listings}
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{accentBlue}\bfseries,
+  commentstyle=\color{gray}\itshape,
+  stringstyle=\color{accentGreen},
+  breaklines=true,
+  frame=single,
+  framerule=0.4pt,
+  aboveskip=6pt, belowskip=6pt
+}
+
+% ── Tables ───────────────────────────────────────────────────────────────
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{caption}
+
+% ── Hyperlinks ────────────────────────────────────────────────────────────
+\usepackage[hidelinks]{hyperref}
+
+% ── TikZ styles ──────────────────────────────────────────────────────────
+\tikzset{
+  box/.style={
+    draw=boxBorder, fill=boxFill, rounded corners=3pt,
+    text width=2.8cm, align=center, minimum height=8mm,
+    font=\footnotesize
+  },
+  coreBox/.style={
+    box, fill=accentBlue!8, draw=accentBlue, font=\footnotesize\bfseries
+  },
+  aiBox/.style={
+    box, fill=accentPurple!8, draw=accentPurple, font=\footnotesize\bfseries
+  },
+  gameBox/.style={
+    box, fill=accentGreen!8, draw=accentGreen, font=\footnotesize\bfseries
+  },
+  uiBox/.style={
+    box, fill=accentOrange!8, draw=accentOrange, font=\footnotesize\bfseries
+  },
+  storeBox/.style={
+    box, fill=accentRed!8, draw=accentRed, font=\footnotesize\bfseries
+  },
+  arrow/.style={
+    ->, >=Stealth, semithick
+  },
+  dashedArrow/.style={
+    ->, >=Stealth, dashed, semithick
+  },
+  edgeLabel/.style={
+    font=\tiny\itshape, text=gray
+  },
+  groupBorder/.style={
+    draw=gray!60, dashed, rounded corners=5pt, inner sep=8pt
+  },
+}
 
 \begin{document}
 
+% ── Title page ────────────────────────────────────────────────────────────
+\title{
+  \textbf{EvoCracker}\\[4pt]
+  {\large A Roguelike Dungeon Crawler with\\[2pt]
+   Evolutionary Artificial Intelligence}\\[12pt]
+  \Large Final Technical Report
+}
+\author{AVM4D}
+\date{\today}
 \maketitle
+\thispagestyle{empty}
 
 \begin{abstract}
-This report outlines the comprehensive architectural improvements and bug resolutions implemented in the EvoCracker system during Phase 6. The primary focus of this phase was to address critical discrepancies in the AI Analytics Dashboard, enforce consistent enemy spawning, and resolve mathematical deadlocks within the core pathfinding algorithms (Depth-Limited Search, Iterative Deepening Search, and Hill Climbing). These resolutions stabilize the evolutionary pipeline and ensure absolute synchronization between the simulation and its telemetry.
+EvoCracker is a browser-based roguelike dungeon crawler in which the player
+descends through procedurally-generated floors contending against enemies
+whose tactical behaviour is governed by \emph{genetically-evolved Behaviour
+Trees} and one of eight classical search algorithms. Each run feeds player
+strategy data into a genetic algorithm that evolves the enemy population for
+subsequent iterations, creating a co-evolutionary loop that continuously adapts
+enemy difficulty and playstyle diversity. This report presents the full technical
+architecture: the core engine, the Entity–Component–System backbone, the
+evolutionary AI pipeline, the algorithmic search layer, the rendering and
+tilemap subsystems, the state-management and analytics infrastructure, and
+the UI screens that tie them together.
 \end{abstract}
 
-\section{Introduction}
-Phase 6 development was initiated to resolve severe inconsistencies identified during the integration of the Genetic Algorithm (GA) with the game simulation. The telemetry data presented in the AI Analytics Panel frequently decoupled from the rendering engine, presenting inaccurate metrics. Furthermore, specific enemy archetypes exhibited catastrophic movement failures, appearing "frozen" or locked in loops when transitioning into alert states. This document details the exact nature of these defects and the technical solutions applied to rectify them.
+\tableofcontents
+\clearpage
 
-\section{Analytics \& Core Engine Resolutions}
+% ===========================================================================
+\section{System Overview}
+% ===========================================================================
 
-\subsection{Analytics \& Sprite Synchronization}
-\textbf{Issue:} The telemetry dashboard displayed "made-up" metrics and inaccurate enemy names relative to their visual sprites. The GA was optimizing entities that did not correspond to their visual representation. \\
-\textbf{Resolution:} The \texttt{createEnemySprite} method within \texttt{SpriteFactory.ts} was refactored. The hardcoded fallback to generic dungeon-pack sprites was removed. It now dynamically maps the runtime \texttt{EnemyType} string directly to its corresponding \texttt{CharacterDef} index. The rendered sprite now strictly correlates with the exact name and data recorded in the analytics snapshot.
+EvoCracker is built as a single-page TypeScript application running on top of
+PixiJS~v8 (WebGL/Canvas rendering) with React for UI overlays and Zustand for
+centralised state management.  The codebase is organised into seven top-level
+subsystems under \texttt{src/}:
 
-\subsection{Guaranteed Genetic Diversity (Spawning Logic)}
-\textbf{Issue:} The procedural generator gated enemy types behind specific floor thresholds (e.g., Floor 1 only generated Toads and Ghosts). This artificially restricted the GA's search space and starved specific algorithms of fitness data. \\
-\textbf{Resolution:} The \texttt{getEnemyTypesForFloor} function in \texttt{Archetypes.ts} was modified to unlock all eight enemy archetypes immediately from Floor 1. Furthermore, the spawn loop in \texttt{GameScreen.tsx} was overhauled to use a round-robin distribution strategy rather than randomized selection. This mathematically guarantees that at least one instance of every enemy archetype (and thus, every pathfinding algorithm) is spawned per map iteration, providing the GA with a universally diverse dataset.
+\begin{enumerate}
+  \item \textbf{Core} — engine primitives: EventBus, Camera, InputManager,
+        SpriteFactory, AssetLoader, DungeonTilesetLoader, and the ECS
+        scaffolding.
+  \item \textbf{AI} — behaviour trees, genetic algorithm, and eight
+        pathfinding / search algorithms.
+  \item \textbf{Game} — entities, systems, world generation, tilemap rendering,
+        and map loading.
+  \item \textbf{Store} — Zustand store holding all mutable game state,
+        including the evolutionary learning history.
+  \item \textbf{UI} — React screens (MainMenu, GameScreen, AlgorithmLab, …),
+        HUD overlays, and analytics dashboards.
+  \item \textbf{Services} — Supabase client for leaderboards and cloud
+        persistence.
+  \item \textbf{Utils} — shared constants, math helpers, seeded random,
+        and the priority queue.
+\end{enumerate}
 
-\subsection{Analytics Accessibility During Pause}
-\textbf{Issue:} The global pause menu's \texttt{z-index} blocked the React analytics dashboard overlay, preventing developers from inspecting telemetry during a frozen frame. \\
-\textbf{Resolution:} The component hierarchy in \texttt{GameScreen.tsx} was adjusted so the analytics panel renders above the pause context layer. The backtick (\`) key listener was relocated to a globally scoped input handler that remains active while the simulation is paused.
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=8mm and 12mm]
+    % ── Top row: UI ──
+    \node[uiBox] (ui) {UI Screens\\(React)};
 
-\subsection{Correcting Metric Pollution}
-\textbf{Issue:} The analytics snapshot loop was pulling data from dead, despawned, or nullified entities, polluting the metrics and displaying "ghost" cards in the UI. \\
-\textbf{Resolution:} The snapshot timer in \texttt{GameScreen.tsx} now utilizes a strict \texttt{.filter((e) => e.isAlive)} map before dispatching data to the Zustand store. The live AI monitor cards in \texttt{AIAnalyticsPanel.tsx} were also updated to display the active algorithm using accurate, color-coded badges matching the \texttt{EnemyType}.
+    % ── Middle row: game runtime ──
+    \node[gameBox, right=of ui] (game) {Game Systems\\(ECS + PixiJS)};
+    \node[aiBox, right=of game] (ai) {AI Pipeline\\(GA + BT + Search)};
+    \node[coreBox, left=of ui] (core) {Core Engine\\(EventBus, Camera, Input)};
 
-\section{Pathfinding Logic \& AI Deadlocks}
+    % ── Bottom row ──
+    \node[storeBox, below=of game, yshift=-6mm] (store) {Zustand Store\\(State + Analytics)};
+    \node[box, fill=gray!10, below=of ui, yshift=-6mm] (services) {Services\\(Supabase)};
 
-\subsection{Pathfinding State Mutation Consistency}
-\textbf{Issue:} Upon entering the \texttt{ALERT} or \texttt{CHASING} state, enemies randomly sampled an algorithm from their genome weights, abandoning their archetype's default algorithm (e.g., a Ghost switching from DFS to A* mid-pursuit). \\
-\textbf{Resolution:} The \texttt{getActiveAlgorithm} method in \texttt{EnemyBase.ts} was corrected. Enemies now strictly adhere to their assigned \texttt{ENEMY\_DEFAULT\_ALGORITHM}. The genome algorithm weights are now isolated strictly for evolutionary fitness tracking and mutation, and no longer govern runtime pathfinding overrides.
+    % ── Arrows ──
+    \draw[arrow] (ui) -- (game) node[edgeLabel, midway, above] {actions};
+    \draw[arrow] (ai) -- (game) node[edgeLabel, midway, above] {commands};
+    \draw[arrow] (game) -- (ai) node[edgeLabel, midway, below] {queries};
+    \draw[arrow] (core) -- (game) node[edgeLabel, midway, above] {events/input};
+    \draw[dashedArrow] (store) -- (game) node[edgeLabel, midway, left] {read/write};
+    \draw[dashedArrow] (store) -- (ui) node[edgeLabel, midway, right, align=center] {subscribe};
+    \draw[dashedArrow] (store) -- (ai);
+    \draw[dashedArrow] (services) -- (store);
 
-\subsection{Grid-Based Local Minima in DLS \& IDS}
-\textbf{Issue:} The Ogre (Depth-Limited Search) and Bridge Heroine (Iterative Deepening Search) frequently became permanently stuck against walls. Because these algorithms utilize a generic \texttt{visited} state, "snake paths" generated by deep exploratory branches marked adjacent tiles as visited, mathematically blocking shorter, more direct paths. \\
-\textbf{Resolution:} Both \texttt{DLS.ts} and \texttt{IDS.ts} were rewritten to utilize a \texttt{visitedDepth} map. Instead of a binary visited flag, the algorithm records the depth at which a node was discovered. If the search routine discovers a previously visited node via a shorter path (\texttt{nextDepth < prevDepth}), it is allowed to overwrite the history and continue exploring. This breaks the local minima deadlock while remaining mathematically identical to pure depth-first exploration.
+    % ── Group borders ──
+    \begin{scope}[on background layer]
+      \node[groupBorder, fit=(core)(ui)(game)(ai)] (runtime) {};
+      \node[above=-2mm of runtime.north, font=\small\bfseries] {Browser Runtime};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{High-level subsystem architecture. Arrows indicate primary data
+           and control flows.}
+  \label{fig:highLevel}
+\end{figure}
 
-\subsection{Hill Climbing Vantage Scoring (Distance Penalty)}
-\textbf{Issue:} The Demon (Hill Climbing) refused to pursue the player, instead choosing to retreat into empty corners of the map. \\
-\textbf{Resolution:} An analysis of \texttt{HillClimbing.ts} revealed a gradient inversion. The default scoring awarded $+3$ points per unit of distance away from walls. The distance penalty for being far from the player was only $-2$. Consequently, moving away from the player to avoid walls resulted in a net positive score. The heuristic gradient was severely steepened; moving closer to the target player now yields $+100$ base points minus a penalty multiplier of $20$, utterly overwhelming the wall-avoidance logic and forcing relentless pursuit until the optimal ranged distance is achieved.
+\clearpage
 
-\subsection{Asynchronous Path Following Stutter}
-\textbf{Issue:} When alerted, enemies request paths asynchronously every 0.12 seconds. Because the path is generated relative to the time of request, enemies that moved forward one tile while waiting for the web-worker response would receive a path telling them to step backward onto the tile they just left. This drained their \texttt{moveAccumulator} budget to zero, causing them to vibrate in place. \\
-\textbf{Resolution:} The path reception logic in \texttt{EnemyBase.ts} was patched. Upon receiving a resolved path, the enemy now iterates through the path array to dynamically discover its precise, current topological location. It then sets its \texttt{pathIndex} to \texttt{startIndex + 1}, ensuring it never wastes movement cycles re-navigating to an occupied tile.
+% ===========================================================================
+\section{Core Engine}
+% ===========================================================================
 
-\subsection{Map Selection Persistence}
-\textbf{Issue:} Despite explicit user selection, the engine would transition from the chosen Tiled JSON map to a procedurally generated BSP dungeon upon reaching Floor 3 (Iteration 2). \\
-\textbf{Resolution:} The procedural switch within \texttt{DungeonGenerator.ts} was governed by a hardcoded \texttt{if (floor === 1 || floor === 2)} limit. This condition was completely removed. The generator now unconditionally prioritizes the \texttt{selectedMap} variable regardless of the current evolutionary iteration.
+The core layer provides the foundation on which all game logic runs.
 
+\subsection{EventBus}
+A singleton pub/sub dispatcher (Figure~\ref{fig:eventbus}).  Every
+inter-subsystem notification flows through typed event channels (e.g.\,
+\texttt{PLAYER\_MOVE}, \texttt{ENEMY\_DEATH}, \texttt{EVOLUTION\_COMPLETE}).
+
+\subsection{Camera}
+A 2-D camera with smooth lerp follow, deadzone, world clamping, and
+screen$\leftrightarrow$world coordinate conversion.  Exposes
+\texttt{getVisibleBounds()} for frustum culling.
+
+\subsection{InputManager}
+Robust singleton that tracks keyboard and mouse state per frame.
+Provides \texttt{isKeyDown}, \texttt{isKeyJustPressed}, and
+\texttt{getMovementVector()} helpers.  Handles tab-visibility and
+window-blur resets to avoid stuck keys.
+
+\subsection{SpriteFactory}
+Loads 12 distinct character sprite sheets (Ghost, Heroine, Ogre, Knight,
+WereWolf, Demon, Toad, Dragon, Lizzard, SpaceMarine, Froggy, Mushroom) and
+creates \texttt{GameSprite} objects that wrap a PixiJS \texttt{Container}
+with \texttt{setAnimation}, \texttt{setFlipX}, and \texttt{updateHealthBar}
+methods.  Each sprite sheet is processed with automatic background-colour
+removal and frame extraction.
+
+\subsection{AssetLoader \& DungeonTilesetLoader}
+The \texttt{AssetLoader} provides a centralised texture cache with probe-and-
+fallback semantics.  \texttt{DungeonTilesetLoader} parses both legacy
+(tileset\_v2.png) and Tiled-JSON–compatible tileset textures, including
+multi-tileset GID resolution, animated tile support, and flip-flag stripping.
+
+% ===========================================================================
+\section{Entity–Component–System Architecture}
+% ===========================================================================
+
+The game runtime is built on a custom ECS (Figure~\ref{fig:ecs}).
+
+\subsection{Components}
+Plain data objects attached to entities:
+\begin{itemize}
+  \item \texttt{PositionComponent} — grid $(c, r)$
+  \item \texttt{MovementComponent} — smoothed pixel position, speed, target
+  \item \texttt{HealthComponent} — current/max HP
+  \item \texttt{RenderComponent} — PixiJS \texttt{GameSprite} wrapper
+  \item \texttt{AIComponent} — algorithm selection, behaviour-tree state,
+        genome reference, path-following state
+  \item \texttt{PlayerComponent} — marker component for the player entity
+  \item \texttt{CombatComponent} — damage, attack cooldown, range
+\end{itemize}
+
+\subsection{World (Entity Manager)}
+The \texttt{World} class holds the entity pool and all component arrays
+(typed dense arrays for cache-friendly iteration).  It provides
+\texttt{createEntity}, \texttt{addComponent}, \texttt{removeComponent}, and
+\texttt{query} (by component mask) methods.
+
+\subsection{Systems}
+Each system runs once per frame and operates on a filtered subset of entities:
+
+\begin{center}
+\begin{tabular}{>{\ttfamily}l>{\raggedright\arraybackslash}p{7cm}}
+\toprule
+\multicolumn{1}{c}{\textbf{System}} & \textbf{Responsibility} \\
+\midrule
+MovementSystem    & Lerps entity sprites toward grid targets; handles collision resolution against the tile grid. \\
+RenderSystem      & Syncs PixiJS display objects with component state (position, animation, flip, health bar). \\
+AISystem          & Runs behaviour-tree ticks, triggers pathfinding requests, and updates AI state machines. \\
+CombatSystem      & Processes attack cooldowns, applies damage, and emits death events. \\
+PlayerSystem      & Processes input, performs grid movement, and handles item usage. \\
+FOVSystem         & Computes field-of-view per entity using shadowcasting; writes visibility maps for the renderer. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=6mm and 10mm]
+    \node[box, fill=accentBlue!15, draw=accentBlue, minimum width=5cm, font=\bfseries\small]
+      (world) {World (Entity Manager)};
+
+    \node[box, below left=4mm and -8mm of world] (pos) {Position};
+    \node[box, right=of pos] (move) {Movement};
+    \node[box, right=of move] (hp) {Health};
+    \node[box, right=of hp] (render) {Render};
+    \node[box, below=of move] (aiC) {AI};
+    \node[box, left=of aiC] (combat) {Combat};
+    \node[box, right=of aiC] (player) {Player};
+
+    \begin{scope}[on background layer]
+      \node[groupBorder, fit=(pos)(move)(hp)(render)(aiC)(combat)(player)]
+        (compGroup) {};
+      \node[left=2mm of compGroup.west, font=\footnotesize, rotate=90, anchor=south]
+        {\textbf{Components}};
+    \end{scope}
+
+    \node[box, fill=accentGreen!15, draw=accentGreen, below=12mm of compGroup,
+          minimum width=4.8cm, font=\bfseries\small]
+      (systems) {Systems (per-frame update)};
+
+    \draw[arrow] (world) -- (compGroup);
+    \draw[arrow] (compGroup) -- (systems) node[edgeLabel, midway, right] {query};
+
+    \node[box, below=4mm of systems, text width=10cm, font=\footnotesize, align=left]
+      (sysList) {MovementSystem · RenderSystem · AISystem \\ CombatSystem · PlayerSystem · FOVSystem};
+  \end{tikzpicture}
+  \caption{ECS architecture. The \texttt{World} owns all entities and
+           component arrays; Systems iterate filtered queries each frame.}
+  \label{fig:ecs}
+\end{figure}
+
+\clearpage
+
+% ===========================================================================
+\section{The Game Brain — Evolutionary AI Pipeline}
+% ===========================================================================
+
+The ``game brain'' is the centrepiece of EvoCracker.
+It combines three AI layers that govern every enemy decision
+(Figure~\ref{fig:gameBrain}):
+
+\subsection{Behaviour Trees (BT)}
+Each enemy is controlled by a genetically-parameterised Behaviour Tree.
+The tree nodes include:
+
+\begin{center}
+\begin{tikzpicture}[
+  level distance=12mm,
+  level 1/.style={sibling distance=30mm},
+  level 2/.style={sibling distance=22mm},
+  level 3/.style={sibling distance=14mm},
+  every node/.style={draw, rounded corners=2pt, font=\footnotesize,
+                     minimum width=18mm, minimum height=6mm, align=center}
+]
+\node[fill=accentPurple!15] {Root: Selector}
+  child { node[fill=accentGreen!12] {Combat\\Sequence}
+    child { node[fill=green!8] {IsPlayerInRange?} }
+    child { node[fill=red!12] {Attack} }
+  }
+  child { node[fill=accentOrange!12] {Chase\\Sequence}
+    child { node[fill=orange!8] {DetectPlayer?} }
+    child { node[fill=orange!8] {SetPathTarget} }
+  }
+  child { node[fill=accentBlue!12] {Patrol\\Sequence}
+    child { node[fill=blue!8] {SelectPatrolPoint} }
+    child { node[fill=blue!8] {FollowPath} }
+  }
+  ;
+\end{tikzpicture}
+\end{center}
+
+The gene values (speed, visionRange, aggression, persistence, cautiousness,
+packTendency, ambushTendency, patrolVariance) influence thresholds, cooldowns,
+and probabilities inside the tree nodes, creating distinct enemy personalities.
+
+\subsection{Search / Pathfinding Algorithms}
+When an enemy needs a path, the BT invokes one of \textbf{eight} graph-search
+algorithms implemented on the tile grid:
+
+\begin{center}
+\begin{tabular}{>{\ttfamily}l>{\raggedright\arraybackslash}p{4cm}c}
+\toprule
+\multicolumn{1}{c}{\textbf{Algorithm}} &
+\multicolumn{1}{c}{\textbf{Type}} &
+\multicolumn{1}{c}{\textbf{Key Property}} \\
+\midrule
+BFS           & Uninformed        & Shortest path (unweighted) \\
+DFS           & Uninformed        & Deep exploration, non-optimal \\
+IDS           & Uninformed        & Iterative deepening, memory-efficient \\
+DLS           & Uninformed        & Depth-limited DFS \\
+UCS           & Informed (cost)   & Optimal for weighted grids \\
+A*            & Informed          & Optimal with heuristic \\
+Greedy BFS    & Informed          & Fast, heuristic-driven, non-optimal \\
+Hill Climbing & Local search      & Simple gradient ascent \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Each enemy is assigned one algorithm at spawn.  The algorithm determines how
+the enemy finds paths to the player or patrol waypoints.
+The \texttt{AlgorithmLabScreen} provides an interactive visualiser where all
+eight algorithms can be compared side-by-side on the same grid.
+
+\subsection{Genetic Algorithm (GA)}
+After a player completes (or dies in) a dungeon run, the system executes a GA
+generation:
+
+\begin{enumerate}
+  \item \textbf{Evaluation} — The \texttt{PlayerProfile} is updated from the
+        run data (path coverage, damage taken, kills, items used, survival
+        time, keystroke patterns).  This profile encodes the player's
+        \emph{strategy fingerprint}.
+  \item \textbf{Fitness scoring} — Each enemy genome is scored against the
+        player profile using a multi-objective fitness function that rewards
+        genomes whose behaviour posed the greatest challenge:
+        \[
+        f(g) = w_1 \cdot \text{damageDealt} + w_2 \cdot \text{detections}
+              - w_3 \cdot \text{timeStuck} + w_4 \cdot \text{areaCovered}
+        \]
+  \item \textbf{Selection} — Tournament selection with elitism preserves the
+        top-$k$ genomes.
+  \item \textbf{Crossover} — Uniform crossover between parent pairs produces
+        offspring genomes.
+  \item \textbf{Mutation} — Gaussian perturbation applied to each gene with
+        configurable rate and magnitude.
+  \item \textbf{Replacement} — The new population replaces the previous
+        generation; difficulty is adjusted by comparing the population's
+        average fitness against thresholds.
+\end{enumerate}
+
+This loop creates a \textbf{co-evolutionary dynamic}: as the player improves,
+the enemies adapt.  All GA metadata (generation number, gene distributions,
+fitness curves, algorithm distributions) is recorded in
+\texttt{IterationProofData} for visualisation.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=9mm and 14mm]
+    % ── BT ──
+    \node[aiBox] (bt) {Behaviour Tree\\(8 gene params)};
+
+    % ── Search ──
+    \node[aiBox, right=of bt] (search) {Search Algorithm\\(BFS, DFS, A*, UCS, …)};
+
+    % ── GA ──
+    \node[aiBox, right=of search] (ga) {Genetic Algorithm\\(Selection, Crossover, Mutation)};
+
+    % ── Game loop ──
+    \node[gameBox, below=of search, yshift=-6mm, minimum width=6cm]
+      (gameLoop) {Game Runtime\\(Enemy decisions + Player actions)};
+
+    % ── Store ──
+    \node[storeBox, below=of gameLoop, yshift=-6mm, minimum width=5cm]
+      (store) {PlayerProfile · Genome Pool · IterationProof};
+
+    % ── Arrows ──
+    \draw[arrow] (bt) -- (search) node[edgeLabel, midway, above] {path request};
+    \draw[arrow] (search) -- (gameLoop) node[edgeLabel, midway, right] {path result};
+    \draw[arrow] (ga) -- (bt) node[edgeLabel, midway, above] {genes};
+    \draw[arrow] (gameLoop) -- (store) node[edgeLabel, midway, left] {run data};
+    \draw[arrow] (store) -- (ga) node[edgeLabel, midway, right] {fitness eval};
+
+    % ── Labels ──
+    \begin{scope}[on background layer]
+      \node[groupBorder, fit=(bt)(search)(ga), label={[font=\small\bfseries]north:AI Pipeline}]
+        (aiGroup) {};
+    \end{scope}
+  \end{tikzpicture}
+  \caption{The Game Brain: three-layer AI architecture.  Genes from the GA
+           parameterise the BT; the BT triggers search algorithms; search results
+           drive in-game movement.  Run data feeds back into the GA.}
+  \label{fig:gameBrain}
+\end{figure}
+
+\clearpage
+
+% ===========================================================================
+\section{World Generation}
+% ===========================================================================
+
+\subsection{DungeonGenerator}
+Procedurally generates tile grids using BSP (Binary Space Partitioning):
+
+\begin{enumerate}
+  \item Recursively split the map region into smaller rectangles.
+  \item Carve rooms inside leaf partitions.
+  \item Connect sibling rooms with L-shaped corridors.
+  \item Place doors at corridor–room junctions.
+  \item Distribute enemies and props (treasure chests, stairs) by tile type.
+\end{enumerate}
+
+The generated \texttt{DungeonData} includes the tile grid (typed as
+\texttt{TileType}), room rectangles, corridor segments, and a collision
+bitmask for fast pathfinding queries.
+
+\subsection{TilemapRenderer}
+Renders the tile grid with frustum culling (visible-bounds from Camera),
+animated tile support (torches, chests, spear traps, trapdoors, gates),
+and FOV fog-of-war overlay.  Supports both procedurally-generated floors
+(legacy tileset) and Tiled-JSON map floors (multi-tileset GID resolution).
+
+\subsection{MapLoader}
+Parses Tiled \texttt{.json} map files exported from the Tiled editor.
+Supports multiple tile layers, object layers (spawn points, chest locations),
+and tileset references with firstgid offsets.
+
+\clearpage
+
+% ===========================================================================
+\section{State Management \& Analytics}
+% ===========================================================================
+
+\subsection{Zustand Store (\texttt{gameStore.ts})}
+The Zustand store is the single source of truth.  Key slices:
+
+\begin{itemize}
+  \item \textbf{Screen routing} — \texttt{currentScreen} drives React routing.
+  \item \textbf{Game state} — floor, biome, dungeon data, pause flag.
+  \item \textbf{Player state} — health, score, items, selected character.
+  \item \textbf{Evolution state} — generation, population (Genome[]),
+        player profile, generation history, iteration proof history.
+  \item \textbf{Analytics} — per-enemy runtime metrics streamed to the
+        analytics dashboard.
+  \item \textbf{Debug toggles} — FOV overlay, grid overlay, path rendering.
+\end{itemize}
+
+The store is \textbf{automatically persisted} to \texttt{localStorage} via
+Zustand's \texttt{persist} middleware, allowing evolutionary progress to
+survive page reloads.
+
+\subsection{Enemy Analytics}
+Every enemy emits real-time analytics (algorithm used, nodes expanded, path
+length, compute time, damage dealt, detections, survival time, area covered)
+via the \texttt{EventBus}.  These are aggregated in the store and visualised
+in the \texttt{AnalyticsOverlay} with time-series charts, algorithm-distribution
+pie charts, and per-enemy detail cards.
+
+\subsection{Supabase Integration}
+Leaderboard scores and player profiles are synchronised to a Supabase backend
+via \texttt{SupabaseService}.  The schema (defined in
+\texttt{SUPABASE\_SCHEMA.sql}) stores runs, genomes, and iteration proofs.
+
+\clearpage
+
+% ===========================================================================
+\section{UI Architecture}
+% ===========================================================================
+
+The UI layer is implemented in React and renders \emph{on top of} the PixiJS
+canvas.  Screens:
+
+\begin{center}
+\begin{tabular}{>{\ttfamily}lp{6.5cm}}
+\toprule
+\multicolumn{1}{c}{\textbf{Screen}} & \textbf{Purpose} \\
+\midrule
+MainMenu            & Start screen with play, lab, and settings buttons \\
+CharacterSelectScreen & Select from 12 character sprites (affects player appearance) \\
+MapSelectScreen     & Choose procedural or Tiled-export maps (Crypt, Dungeon, …) \\
+GameScreen          & Main gameplay: mounts PixiJS, runs ECS, renders HUD overlays \\
+AlgorithmLabScreen  & Interactive visualiser comparing all eight search algorithms \\
+SettingsScreen      & Audio, username, debug toggles \\
+LeaderboardScreen   & Supabase-backed high-score table \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The \texttt{HUD} component overlays health bars, minimap, floor indicator,
+item slots, and the pause menu.  The \texttt{AnalyticsOverlay} renders the
+enemy-performance dashboard and iteration-proof graphs.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[node distance=7mm and 10mm]
+    \node[coreBox, minimum width=3.2cm] (pixi) {PixiJS Canvas\\(WebGL)};
+    \node[uiBox, right=of pixi, minimum width=3.2cm] (react) {React Overlay\\(DOM)};
+
+    \node[gameBox, below=of pixi, minimum width=3.2cm, yshift=-4mm] (gameScr) {GameScreen};
+    \node[aiBox, below=of react, minimum width=3.2cm, yshift=-4mm] (labScr) {AlgorithmLab};
+
+    \node[coreBox, below=of gameScr, minimum width=3.2cm, yshift=-4mm] (input) {InputManager};
+    \node[storeBox, below=of labScr, minimum width=3.2cm, yshift=-4mm] (store) {Zustand Store};
+
+    \draw[arrow] (gameScr) -- (pixi) node[edgeLabel, midway, left] {mount};
+    \draw[arrow] (react) -- (pixi) node[edgeLabel, midway, above] {overlay};
+    \draw[arrow] (input) -- (gameScr);
+    \draw[dashedArrow] (store) -- (gameScr);
+    \draw[dashedArrow] (store) -- (labScr);
+  \end{tikzpicture}
+  \caption{Rendering stack: the PixiJS canvas handles the game world;
+           React overlays provide UI, HUD, and analytics panels.}
+  \label{fig:rendering}
+\end{figure}
+
+\clearpage
+
+% ===========================================================================
+\section{Data Flow: A Complete Frame}
+% ===========================================================================
+
+Figure~\ref{fig:frameFlow} traces the data flow for a single game frame.
+
+\begin{figure}[htbp]
+  \centering
+  \begin{tikzpicture}[
+    node distance=6mm and 8mm,
+    block/.style={draw, rounded corners=2pt, align=center, font=\footnotesize,
+                  minimum width=22mm, minimum height=7mm, fill=#1!10},
+  ]
+    % ── Column 0: Input ──
+    \node[block=accentBlue] (input) {1. Poll Input\\(InputManager)};
+
+    % ── Column 1: Player ──
+    \node[block=accentBlue, below=of input] (player) {2. PlayerSystem\\process input};
+    \draw[arrow] (input) -- (player);
+
+    % ── Column 2: AI ──
+    \node[block=accentPurple, right=of input] (bt) {2. AISystem\\tick BT nodes};
+    \node[block=accentPurple, below=of bt] (pf) {3. Pathfinding\\search algorithm};
+    \node[block=accentPurple, below=of pf] (follow) {4. Follow path\\update target};
+    \draw[arrow] (bt) -- (pf);
+    \draw[arrow] (pf) -- (follow);
+
+    % ── Column 3: Systems ──
+    \node[block=accentGreen, below=of player] (move) {3. MovementSystem\\lerp + collision};
+    \node[block=accentGreen, below=of move] (combat) {4. CombatSystem\\damage calc};
+    \node[block=accentGreen, below=of combat] (fov) {5. FOVSystem\\shadowcasting};
+    \node[block=accentGreen, below=of fov] (render) {6. RenderSystem\\sync sprites};
+    \draw[arrow] (player) -- (move);
+    \draw[arrow] (move) -- (combat);
+    \draw[arrow] (combat) -- (fov);
+    \draw[arrow] (fov) -- (render);
+
+    % ── Connect AI to movement ──
+    \draw[dashedArrow] (follow.west) -- ++(-8mm,0) |- (move.east)
+      node[edgeLabel, midway, right] {path};
+
+    % ── Column 4: Output ──
+    \node[block=accentOrange, right=of render] (tilemap) {7. TilemapRenderer\\cull + draw};
+    \node[block=accentOrange, below=of tilemap] (event) {8. Emit Events\\(EventBus)};
+    \node[block=accentRed, below=of event] (analytics) {9. Push Analytics\\(Store)};
+
+    \draw[arrow] (render) -- (tilemap);
+    \draw[arrow] (tilemap) -- (event);
+    \draw[arrow] (event) -- (analytics);
+
+  \end{tikzpicture}
+  \caption{Per-frame data flow: input $\to$ AI $\to$ systems $\to$ render
+           $\to$ events $\to$ analytics.}
+  \label{fig:frameFlow}
+\end{figure}
+
+\clearpage
+
+% ===========================================================================
 \section{Conclusion}
-The completion of Phase 6 definitively stabilizes the EvoCracker environment. By resolving fundamental mathematical oversights in the search algorithms and enforcing strict separation between visual telemetry and underlying genetic data, the simulation now provides a pristine, deterministically accurate dataset for continuous evolutionary learning.
+% ===========================================================================
+
+EvoCracker demonstrates a cohesive integration of classical game-engine
+architecture (ECS, tilemaps, sprite rendering) with modern evolutionary AI
+techniques.  The three-layer Game Brain—Behaviour Trees parameterised by a
+Genetic Algorithm, driving eight separable pathfinding strategies—creates
+emergent enemy behaviour that adapts to individual player playstyles across
+iterations.  The technical architecture is modular, event-driven, and
+well-suited for continued research into co-evolutionary game AI.
 
 \end{document}
