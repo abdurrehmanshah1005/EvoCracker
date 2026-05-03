@@ -477,6 +477,10 @@ const ENEMY_SPRITE_MAP: Record<EnemyType, { folder: string; prefix: string }> = 
   [EnemyType.WARRIOR]:       { folder: 'priests/priest1',     prefix: 'priest1_v1' },
   [EnemyType.ASSASSIN]:      { folder: 'monsters/skeleton2',  prefix: 'skeleton_v2' },
   [EnemyType.NECROMANCER]:   { folder: 'priests/priest3',     prefix: 'priest3_v1' },
+  [EnemyType.DRAGON]:        { folder: 'monsters/skull',      prefix: 'skull_v1' },
+  [EnemyType.LIZARD]:        { folder: 'monsters/skeleton1',  prefix: 'skeleton_v1' },
+  [EnemyType.SPACE_MARINE]:  { folder: 'priests/priest1',     prefix: 'priest1_v1' },
+  [EnemyType.SUNNY_MUSHROOM]:{ folder: 'monsters/skeleton2',  prefix: 'skeleton_v2' },
 };
 
 /**
