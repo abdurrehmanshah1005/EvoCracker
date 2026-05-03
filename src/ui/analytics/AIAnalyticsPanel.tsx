@@ -2,6 +2,8 @@ import { useGameStore, type EnemyAnalyticsData, type IterationProofData } from '
 import { AlgorithmType, ALGORITHM_COLORS } from '@utils/constants';
 import { getAlgorithmInfo } from '@ai/pathfinding/AlgorithmRegistry';
 import type { Genome, GenerationStats, PlayerProfile } from '@ai/evolution/GeneticAlgorithm';
+import { CHARACTER_DEFS } from '@core/SpriteFactory';
+import { getCharacterAlgoLabel } from '@game/allies/AllyDefs';
 
 const TABS = ['Live AI', 'Genomes', 'Evolution', 'Player', 'Pathfinding', 'Performance'];
 const GENE_LABELS: Record<string, string> = {
@@ -70,7 +72,7 @@ export function AIAnalyticsPanel() {
       {/* Content */}
       <div className="analytics-content">
         {analyticsTab === 0 && <AlgorithmMonitorTab enemyAnalytics={enemyAnalytics} />}
-        {analyticsTab === 1 && <GenomeInspectorTab population={population} />}
+        {analyticsTab === 1 && <GenomeInspectorTab population={population} enemyAnalytics={enemyAnalytics} />}
         {analyticsTab === 2 && (
           <EvolutionDashboardTab
             history={generationHistory}
@@ -246,6 +248,21 @@ function AlgorithmMonitorTab({ enemyAnalytics }: { enemyAnalytics: EnemyAnalytic
         })}
       </div>
 
+      <div className="analytics-section">
+        <div className="analytics-section-title">Character Algorithm Mapping</div>
+        {CHARACTER_DEFS.map((character) => {
+          const algoLabel = getCharacterAlgoLabel(
+            CHARACTER_DEFS.findIndex((entry) => entry.key === character.key)
+          );
+          return (
+            <div key={character.key} className="analytics-stat">
+              <span className="analytics-stat-label">{character.name}</span>
+              <span className="analytics-stat-value">{algoLabel || 'No algorithm mapping'}</span>
+            </div>
+          );
+        })}
+      </div>
+
       {enemyAnalytics.length > 0 && (
         <div className="analytics-section">
           <div className="analytics-section-title">Runtime Comparison</div>
@@ -319,8 +336,37 @@ function AlgorithmMonitorTab({ enemyAnalytics }: { enemyAnalytics: EnemyAnalytic
 }
 
 // --- Tab: Genome Inspector ---
-function GenomeInspectorTab({ population }: { population: Genome[] }) {
-  if (population.length === 0) {
+function GenomeInspectorTab({
+  population,
+  enemyAnalytics,
+}: {
+  population: Genome[];
+  enemyAnalytics: EnemyAnalyticsData[];
+}) {
+  const liveGenomes = enemyAnalytics.map((enemy) => ({
+    id: `live-${enemy.entityId}`,
+    title: `${enemy.enemyType} G${enemy.generation}`,
+    subtitle: enemy.algorithm,
+    fitness: enemy.fitness,
+    speed: enemy.speedGene,
+    vision: enemy.visionGene,
+    aggression: enemy.aggressionGene,
+    persistence: enemy.persistenceGene,
+    cautiousness: enemy.cautiousnessGene,
+    packTendency: enemy.packTendencyGene,
+    ambushTendency: enemy.ambushTendencyGene,
+    mutations: [] as string[],
+  }));
+
+  const fallbackPopulation = population.map((genome) => ({
+    ...genome,
+    title: `Genome ${genome.id.slice(0, 6)}`,
+    subtitle: `Gen ${genome.generation}`,
+  }));
+
+  const rows = liveGenomes.length > 0 ? liveGenomes : fallbackPopulation;
+
+  if (rows.length === 0) {
     return (
       <div className="analytics-section">
         <div className="analytics-section-title">No Active Population</div>
@@ -333,14 +379,18 @@ function GenomeInspectorTab({ population }: { population: Genome[] }) {
 
   return (
     <div className="analytics-section">
-      <div className="analytics-section-title">Population ({population.length})</div>
-      {population.slice(0, 10).map((genome) => (
+      <div className="analytics-section-title">Genome Inspector ({rows.length})</div>
+      {rows.slice(0, 12).map((genome) => (
         <div key={genome.id} className="enemy-card">
           <div className="enemy-card-header">
-            <span className="enemy-card-name">Gen {genome.generation}</span>
+            <span className="enemy-card-name">{genome.title}</span>
             <span className="analytics-stat-value" style={{ color: 'var(--gold)' }}>
               Fitness: {genome.fitness.toFixed(1)}
             </span>
+          </div>
+          <div className="analytics-stat">
+            <span className="analytics-stat-label">Algorithm</span>
+            <span className="analytics-stat-value">{genome.subtitle}</span>
           </div>
           <GenomeBar label="Speed" value={genome.speed} color="var(--cyan)" />
           <GenomeBar label="Vision" value={genome.vision} color="var(--blue)" />

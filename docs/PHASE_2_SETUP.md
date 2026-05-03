@@ -2,6 +2,18 @@
 
 This document explains how EvoCracker handles Phase 2, collecting initial telemetry to classify the player's baseline playstyle before evolving the first generation of AI agents.
 
+## Phase 2 Deliverable Summary
+
+- Implemented a dedicated no-enemy calibration pass on first run.
+- Captured raw telemetry suitable for later classification and GA adaptation.
+- Added a clean transition from calibration into evolved combat runs.
+
+## Verification Checklist
+
+- [x] Calibration captures keystrokes, movement, and zone dwell.
+- [x] Profile preprocessing is defined before classification.
+- [x] Exit and transition behavior is explicitly documented.
+
 ## 1. What is the Calibration Round?
 Since EvoCracker uses real-time player data rather than a pre-existing dataset, it requires initial data to train Generation 1 enemies. We've introduced a **Calibration Round** that occurs on **Floor 1, Iteration 1**. 
 

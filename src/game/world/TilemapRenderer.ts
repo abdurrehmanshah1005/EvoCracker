@@ -678,12 +678,6 @@ export function renderMarkers(container: Container, dungeon: Awaited<ReturnType<
     container.addChild(gem);
   }
 
-  const style = new TextStyle({ fontFamily: 'Press Start 2P', fontSize: 9, fill: 0xc8a850 });
-  const lbl = new Text({ text: `Floor ${dungeon.floor} — ${dungeon.biome.toUpperCase()}`, style });
-  lbl.x = dungeon.spawnPoint.x * TILE_SIZE - 60;
-  lbl.y = dungeon.spawnPoint.y * TILE_SIZE - 30;
-  lbl.zIndex = 20;
-  container.addChild(lbl);
 }
 
 // ══════════════════════════════════════════════════════════════════════

@@ -92,6 +92,17 @@ export enum EnemyType {
   WEREWOLF = 'WereWolf',
   FROGGY = 'Sunny Froggy',
   DEMON = 'Demon',
+  MUMMY = 'Mummy',
+  BOMBER = 'Bomber',
+  KNIGHT = 'Knight',
+  BARBARIAN = 'Barbarian',
+  WARRIOR = 'Warrior',
+  ASSASSIN = 'Assassin',
+  NECROMANCER = 'Necromancer',
+  DRAGON = 'Dragon',
+  LIZARD = 'Lizard',
+  SPACE_MARINE = 'Space Marine',
+  SUNNY_MUSHROOM = 'Sunny Mushroom',
 }
 
 // Enemy ➜ Default Algorithm mapping
@@ -104,6 +115,17 @@ export const ENEMY_DEFAULT_ALGORITHM: Record<EnemyType, AlgorithmType> = {
   [EnemyType.WEREWOLF]: AlgorithmType.ASTAR,
   [EnemyType.FROGGY]: AlgorithmType.GREEDY_BFS,
   [EnemyType.DEMON]: AlgorithmType.HILL_CLIMBING,
+  [EnemyType.MUMMY]: AlgorithmType.BFS,
+  [EnemyType.BOMBER]: AlgorithmType.GREEDY_BFS,
+  [EnemyType.KNIGHT]: AlgorithmType.UCS,
+  [EnemyType.BARBARIAN]: AlgorithmType.DLS,
+  [EnemyType.WARRIOR]: AlgorithmType.IDS,
+  [EnemyType.ASSASSIN]: AlgorithmType.ASTAR,
+  [EnemyType.NECROMANCER]: AlgorithmType.HILL_CLIMBING,
+  [EnemyType.DRAGON]: AlgorithmType.UCS,
+  [EnemyType.LIZARD]: AlgorithmType.GREEDY_BFS,
+  [EnemyType.SPACE_MARINE]: AlgorithmType.ASTAR,
+  [EnemyType.SUNNY_MUSHROOM]: AlgorithmType.HILL_CLIMBING,
 };
 
 // Behavior Tree node status

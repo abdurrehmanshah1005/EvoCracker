@@ -13,7 +13,7 @@ export function PlayerHUD({ items = [], sprintEnergy = 1 }: PlayerHUDProps) {
     fps,
     analyticsEnabled, generation, population, currentDifficulty, iteration,
     selectedMap,
-    activeAlias,
+    selectedAllies,
   } = useGameStore();
 
   const mapDef = AVAILABLE_MAPS.find((m) => m.id === selectedMap);
@@ -66,7 +66,7 @@ export function PlayerHUD({ items = [], sprintEnergy = 1 }: PlayerHUDProps) {
         </div>
 
         <div className="hud-info">
-          Alias: <span className="value">{activeAlias ? activeAlias.toUpperCase() : 'NONE'}</span>
+          Allies: <span className="value">{selectedAllies.length}</span>
         </div>
       </div>
 

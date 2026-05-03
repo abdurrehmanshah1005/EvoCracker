@@ -18,19 +18,11 @@ const AVAILABLE_MAPS: MapInfo[] = [
   },
   {
     id: 'forest_ruins',
-    name: 'Forest Ruins',
-    description: 'Overgrown ancient ruins deep in a mystical forest. Open clearings connected by narrow paths through crumbling walls.',
-    thumbnail: '/assets/maps/forest_ruins.png',
-    layoutPath: '/assets/maps/forest_ruins.png',
+    name: 'Lonely Lair',
+    description: 'A lonely overgrown lair with open clearings, broken paths, and ruined stone corridors.',
+    thumbnail: '/assets/lonelylair.png',
+    layoutPath: '/assets/lonelylair.png',
     isProcedural: false,
-  },
-  {
-    id: 'random',
-    name: 'Random Dungeon',
-    description: 'A procedurally generated dungeon using BSP tree algorithm. Every run is unique — rooms and corridors are created on the fly.',
-    thumbnail: '',
-    layoutPath: '',
-    isProcedural: true,
   },
 ];
 

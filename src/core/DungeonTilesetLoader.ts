@@ -549,13 +549,33 @@ export async function loadItemAnimations(): Promise<{
   chest: Texture[];
   peaks: Texture[];
   coin: Texture[];
+  potion: Texture[];
 }> {
-  const [torch, chest, peaks, coin] = await Promise.all([
+  // Load individual coin frames from public/coin1-5.png
+  const coinFrames: Texture[] = [];
+  for (let i = 1; i <= 5; i++) {
+    try {
+      const tex = await Assets.load(`/coin${i}.png`) as Texture;
+      tex.source.scaleMode = 'nearest';
+      coinFrames.push(tex);
+    } catch { /* frame not found */ }
+  }
+
+  // Load individual potion frames from public/potion1-3.png
+  const potionFrames: Texture[] = [];
+  for (let i = 1; i <= 3; i++) {
+    try {
+      const tex = await Assets.load(`/potion${i}.png`) as Texture;
+      tex.source.scaleMode = 'nearest';
+      potionFrames.push(tex);
+    } catch { /* frame not found */ }
+  }
+
+  const [torch, chest, peaks] = await Promise.all([
     loadAnimationFrames('assets/dungeon-pack/items/torch', 'torch', 4),
     loadAnimationFrames('assets/dungeon-pack/items/chest', 'chest', 4),
     loadAnimationFrames('assets/dungeon-pack/items/peaks', 'peaks', 4),
-    loadAnimationFrames('assets/dungeon-pack/items/coin', 'coin', 4),
   ]);
 
-  return { torch, chest, peaks, coin };
+  return { torch, chest, peaks, coin: coinFrames, potion: potionFrames };
 }

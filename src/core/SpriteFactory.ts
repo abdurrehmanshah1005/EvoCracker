@@ -54,12 +54,16 @@ export interface CustomAnimRegions {
  * Defines separate sprite sheets for each animation state.
  * Used for characters whose assets come as individual strip images per animation.
  */
+export type AnimationSource =
+  | { path: string; cols: number; frameW: number; frameH: number }
+  | { paths: string[]; frameW: number; frameH: number };
+
 export interface SeparateSheets {
-  idle: { path: string; cols: number; frameW: number; frameH: number };
-  walk: { path: string; cols: number; frameW: number; frameH: number };
-  attack: { path: string; cols: number; frameW: number; frameH: number };
-  death?: { path: string; cols: number; frameW: number; frameH: number };
-  special?: { path: string; cols: number; frameW: number; frameH: number };
+  idle: AnimationSource;
+  walk: AnimationSource;
+  attack: AnimationSource;
+  death?: AnimationSource;
+  special?: AnimationSource;
 }
 
 export interface CharacterDef {
@@ -81,6 +85,14 @@ export interface CharacterDef {
   flipDefault?: boolean;  // true if sprite faces left by default (invert flip logic)
   customScale?: number;   // optional multiplier for base scaling
   icon?: string;          // custom thumbnail icon path
+}
+
+function framePaths(folder: string, prefix: string, start: number, end: number): string[] {
+  const paths: string[] = [];
+  for (let i = start; i <= end; i++) {
+    paths.push(`/assets/characters/${folder}/${prefix}${String(i).padStart(4, '0')}.png`);
+  }
+  return paths;
 }
 
 // The sprite sheets are roughly 1024x1024 with 8 columns × 3-5 rows.
@@ -236,7 +248,7 @@ export const CHARACTER_DEFS: CharacterDef[] = [
     },
   },
   {
-    name: 'Lizzard',
+    name: 'Lizard',
     key: 'lizzard',
     sheet: '/assets/characters/Grotto-escape-2-lizzard/spritesheets/idle.png',
     frameW: 64, frameH: 32,
@@ -275,18 +287,18 @@ export const CHARACTER_DEFS: CharacterDef[] = [
   {
     name: 'Sunny Froggy',
     key: 'froggy',
-    sheet: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-taunting.png',
-    frameW: 53, frameH: 42,
-    cols: 4, rows: 1,
+    sheet: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-walk.png',
+    frameW: 42, frameH: 38,
+    cols: 10, rows: 1,
     idleRow: 0, walkRow: 0, attackRow: 0,
     color: '#ffff33',
     description: 'Bouncing hopper',
     glowColor: 0xffff33,
     flipDefault: true,
     separateSheets: {
-      idle:    { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-taunting.png', cols: 4, frameW: 53, frameH: 42 },
+      idle:    { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-walk.png',     cols: 10, frameW: 42, frameH: 38 },
       walk:    { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-walk.png',     cols: 10, frameW: 42, frameH: 38 },
-      attack:  { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-jump.png',     cols: 7, frameW: 192, frameH: 80 },
+      attack:  { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-taunting.png', cols: 4, frameW: 53, frameH: 42 },
       special: { path: '/assets/characters/sunny-froggy/Spritesheets/sunny-froggy-jump.png',     cols: 7, frameW: 192, frameH: 80 },
     },
   },
@@ -305,6 +317,128 @@ export const CHARACTER_DEFS: CharacterDef[] = [
       walk:    { path: '/assets/characters/sunny-mushroom/spritesheets/sunny-mushroom-walk.png',   cols: 10, frameW: 41, frameH: 30 },
       attack:  { path: '/assets/characters/sunny-mushroom/spritesheets/sunny-mushroom-breath.png', cols: 10, frameW: 63, frameH: 37 },
       special: { path: '/assets/characters/sunny-mushroom/spritesheets/gas-alone.png',             cols: 6, frameW: 63, frameH: 37 },
+    },
+  },
+  {
+    name: 'Mummy',
+    key: 'mummy',
+    sheet: '/assets/characters/Mummy/Mummy_Spr_Idle_0000.png',
+    frameW: 154, frameH: 126,
+    cols: 1, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#d0c08a',
+    description: 'Ancient wrapped stalker',
+    glowColor: 0xd0c08a,
+    separateSheets: {
+      idle: { paths: framePaths('Mummy', 'Mummy_Spr_Idle_', 0, 11), frameW: 154, frameH: 126 },
+      walk: { paths: framePaths('Mummy', 'Mummy_Spr_Walk_', 0, 17), frameW: 154, frameH: 126 },
+      attack: { paths: framePaths('Mummy', 'Mummy_Spr_Channel_', 0, 24), frameW: 154, frameH: 126 },
+    },
+  },
+  {
+    name: 'Bomber',
+    key: 'bomber',
+    sheet: '/assets/characters/Bomber/Bomber_0000_Idle.png',
+    frameW: 64, frameH: 68,
+    cols: 1, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#ffb347',
+    description: 'Explosive skirmisher',
+    glowColor: 0xffb347,
+    separateSheets: {
+      idle: { paths: ['/assets/characters/Bomber/Bomber_0000_Idle.png'], frameW: 64, frameH: 68 },
+      walk: { paths: framePaths('Bomber', 'Bomber_Spr_Walk_', 0, 11), frameW: 95, frameH: 101 },
+      attack: { paths: framePaths('Bomber', 'Bomber_Spr_Attack1_', 0, 11), frameW: 95, frameH: 101 },
+    },
+  },
+  {
+    name: 'Knight',
+    key: 'new-knight',
+    sheet: '/assets/characters/Knight/Knight_Spr_Idle_0000.png',
+    frameW: 78, frameH: 65,
+    cols: 1, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#a7c7ff',
+    description: 'Disciplined armored fighter',
+    glowColor: 0xa7c7ff,
+    separateSheets: {
+      idle: { paths: framePaths('Knight', 'Knight_Spr_Idle_', 0, 12), frameW: 78, frameH: 65 },
+      walk: { paths: framePaths('Knight', 'Knight_Spr_Walk_', 0, 9), frameW: 78, frameH: 65 },
+      attack: { paths: framePaths('Knight', 'Knight_Spr_Attack1_', 1, 14), frameW: 78, frameH: 65 },
+    },
+  },
+  {
+    name: 'Barbarian',
+    key: 'barbarian',
+    sheet: '/assets/characters/Barbarian/Barbarian_Spr_Idle_0000.png',
+    frameW: 84, frameH: 101,
+    cols: 1, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#ff6f4a',
+    description: 'Heavy melee raider',
+    glowColor: 0xff6f4a,
+    separateSheets: {
+      idle: { paths: framePaths('Barbarian', 'Barbarian_Spr_Idle_', 0, 18), frameW: 84, frameH: 101 },
+      walk: { paths: framePaths('Barbarian', 'Barbarian_Spr_Walk_', 0, 9), frameW: 84, frameH: 101 },
+      attack: { paths: framePaths('Barbarian', 'Barbarian_Spr_Attack3_', 1, 14), frameW: 84, frameH: 101 },
+    },
+  },
+  {
+    name: 'Warrior',
+    key: 'warrior',
+    sheet: '/assets/characters/Warrior/Warrior_Spr_Idle_0000.png',
+    frameW: 85, frameH: 93,
+    cols: 1, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#6ee7b7',
+    description: 'Balanced blade master',
+    glowColor: 0x6ee7b7,
+    separateSheets: {
+      idle: { paths: framePaths('Warrior', 'Warrior_Spr_Idle_', 0, 12), frameW: 85, frameH: 93 },
+      walk: { paths: framePaths('Warrior', 'Warrior_Spr_Dash_', 0, 13), frameW: 85, frameH: 93 },
+      attack: { paths: framePaths('Warrior', 'Warrior_Spr_Attack1_', 0, 17), frameW: 85, frameH: 93 },
+    },
+  },
+  {
+    name: 'Assassin',
+    key: 'new-assassin',
+    sheet: '/assets/characters/Assassin/Assassin_Spr_Idle_0000.png',
+    frameW: 70, frameH: 67,
+    cols: 1, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#c084fc',
+    description: 'Fast silent killer',
+    glowColor: 0xc084fc,
+    separateSheets: {
+      idle: { paths: framePaths('Assassin', 'Assassin_Spr_Idle_', 0, 12), frameW: 70, frameH: 67 },
+      walk: { paths: framePaths('Assassin', 'Assassin_Spr_Dash_', 0, 13), frameW: 70, frameH: 67 },
+      attack: { paths: framePaths('Assassin', 'Assassin_Spr_Attack2_', 1, 14), frameW: 70, frameH: 67 },
+    },
+  },
+  {
+    name: 'Necromancer',
+    key: 'necromancer',
+    sheet: '/assets/characters/Necromancer/Necromancer_Spr_Idle_0000.png',
+    frameW: 230, frameH: 139,
+    cols: 1, rows: 1,
+    idleRow: 0, walkRow: 0, attackRow: 0,
+    color: '#9f7aea',
+    description: 'Dark spellcaster',
+    glowColor: 0x9f7aea,
+    customScale: 1.8,
+    separateSheets: {
+      idle: {
+        paths: [
+          '/assets/characters/Necromancer/Necromancer_Spr_Idle_0000.png',
+          '/assets/characters/Necromancer/Necromancer_Spr_Idle_0007.png',
+          '/assets/characters/Necromancer/Necromancer_Spr_Idle_0008.png',
+          '/assets/characters/Necromancer/Necromancer_Spr_Idle_0014.png',
+        ],
+        frameW: 230,
+        frameH: 139,
+      },
+      walk: { paths: framePaths('Necromancer', 'Necromancer_Spr_Walk_', 0, 9), frameW: 230, frameH: 139 },
+      attack: { paths: framePaths('Necromancer', 'Necromancer_Spr_Attack1_', 0, 17), frameW: 230, frameH: 139 },
     },
   },
 ];
@@ -336,6 +470,13 @@ const ENEMY_SPRITE_MAP: Record<EnemyType, { folder: string; prefix: string }> = 
   [EnemyType.OGRE]:          { folder: 'priests/priest2',     prefix: 'priest2_v1' },
   [EnemyType.TERRIBLE_KNIGHT]:{ folder: 'monsters/vampire',    prefix: 'vampire_v1' },
   [EnemyType.WEREWOLF]:      { folder: 'monsters/skeleton2',  prefix: 'skeleton_v2' },
+  [EnemyType.MUMMY]:         { folder: 'monsters/skeleton1',  prefix: 'skeleton_v1' },
+  [EnemyType.BOMBER]:        { folder: 'monsters/skull',      prefix: 'skull_v1' },
+  [EnemyType.KNIGHT]:        { folder: 'monsters/vampire',    prefix: 'vampire_v1' },
+  [EnemyType.BARBARIAN]:     { folder: 'priests/priest2',     prefix: 'priest2_v1' },
+  [EnemyType.WARRIOR]:       { folder: 'priests/priest1',     prefix: 'priest1_v1' },
+  [EnemyType.ASSASSIN]:      { folder: 'monsters/skeleton2',  prefix: 'skeleton_v2' },
+  [EnemyType.NECROMANCER]:   { folder: 'priests/priest3',     prefix: 'priest3_v1' },
 };
 
 /**
@@ -420,7 +561,21 @@ export async function initSpriteAssets(): Promise<void> {
          * Load a single horizontal strip spritesheet and extract frames.
          * Each strip has `cols` frames of `frameW x frameH` side by side.
          */
-        const loadStrip = async (info: { path: string; cols: number; frameW: number; frameH: number }): Promise<Texture[]> => {
+        const loadStrip = async (info: AnimationSource): Promise<Texture[]> => {
+          if ('paths' in info) {
+            const frames: Texture[] = [];
+            for (const path of info.paths) {
+              const result = await loadSpriteSheetWithBgRemoval(path);
+              if (!result) continue;
+              const { texture } = result;
+              frames.push(new Texture({
+                source: texture.source,
+                frame: new Rectangle(0, 0, Math.min(info.frameW, texture.width), Math.min(info.frameH, texture.height)),
+              }));
+            }
+            return frames;
+          }
+
           const result = await loadSpriteSheetWithBgRemoval(info.path);
           if (!result) return [];
           const { texture: stripTex } = result;
