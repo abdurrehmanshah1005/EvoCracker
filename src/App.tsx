@@ -7,7 +7,8 @@ import { CharacterSelectScreen } from '@ui/screens/CharacterSelectScreen';
 import { MapSelectScreen } from '@ui/screens/MapSelectScreen';
 import { LeaderboardScreen } from '@ui/screens/LeaderboardScreen';
 import { MusicPlayer } from '@ui/components/MusicPlayer';
-import { AliasShopScreen } from '@ui/screens/AliasShopScreen';
+import { AlliesShopScreen } from '@ui/screens/AlliesShopScreen';
+import { AlliesSelectScreen } from '@ui/screens/AlliesSelectScreen';
 
 function App() {
   const currentScreen = useGameStore((s) => s.currentScreen);
@@ -31,7 +32,10 @@ function App() {
       case 'leaderboard':
         return <LeaderboardScreen />;
       case 'aliasShop':
-        return <AliasShopScreen />;
+      case 'alliesShop':
+        return <AlliesShopScreen />;
+      case 'alliesSelect':
+        return <AlliesSelectScreen />;
       default:
         return <MainMenu />;
     }

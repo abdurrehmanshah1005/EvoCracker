@@ -4,8 +4,8 @@
 // ========================
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { Application, Container, Graphics, Text, TextStyle, Sprite, AnimatedSprite } from 'pixi.js';
-import { useGameStore, type AliasKind, type IterationProofData } from '@store/gameStore';
+import { Application, Container, Graphics, Text, TextStyle, Sprite, AnimatedSprite, Texture, Assets } from 'pixi.js';
+import { useGameStore, type IterationProofData } from '@store/gameStore';
 import { InputManager } from '@core/InputManager';
 import { Camera } from '@core/Camera';
 import { Grid } from '@ai/pathfinding/Grid';
@@ -32,15 +32,7 @@ import {
 import { EventBus, GameEvents } from '@core/EventBus';
 import type { EnemyBase } from '@game/entities/enemies/EnemyBase';
 import { randomChoice, randomInt, shuffle } from '@utils/random';
-import {
-  ALIAS_DEFS,
-  ALIAS_ORDER,
-  ALIAS_AEGIS_REDUCTION,
-  ALIAS_SHOP_MIN_FLOOR,
-  ALIAS_STRIKER_DAMAGE,
-  ALIAS_STRIKER_RANGE,
-  ALIAS_SWIFT_MULTIPLIER,
-} from '@game/aliases/AliasDefs';
+import { getAllyRole, type AllyRole } from '@game/allies/AllyDefs';
 import { loadTileset, isTilesetLoaded, getTileTexture, getWallTexture, loadItemAnimations, getTiledTileTexture, isTiledTilesetLoaded, getTiledTileAnimation, stripTiledFlipFlags } from '@core/DungeonTilesetLoader';
 
 const MAX_INTELLIGENCE_RUNS = 1;
@@ -96,7 +88,12 @@ type CoinPickup = {
 };
 
 type TeleporterPair = { a: { x: number; y: number }; b: { x: number; y: number } };
-type TeleporterVisual = { tileX: number; tileY: number; gfx: Graphics; pulseOffset: number };
+type TeleporterVisual = { tileX: number; tileY: number; sprite: AnimatedSprite };
+type AllyRuntime = {
+  enemy: EnemyBase;
+  role: AllyRole;
+  attackTimer: number;
+};
 
 const PROOF_GENE_KEYS = [
   'speed',
@@ -311,7 +308,7 @@ export function GameScreen() {
   const trapdoorReturnTimerRef = useRef(0);
   const floorClearedRef = useRef(false);
   const floorAdvancePendingRef = useRef(false);
-  const aliasShopNotifiedRef = useRef(false);
+  const alliesShopNotifiedRef = useRef(false);
   const allSpawnedEnemiesRef = useRef<EnemyBase[]>([]);
   const evolvingPopulationRef = useRef<Genome[]>([]);
   const intelligenceRunRef = useRef(1);
@@ -539,22 +536,9 @@ export function GameScreen() {
       worldContainer.addChild(attackLayer);
       attackVisualRef.current = attackLayer;
 
-      const aliasLayer = new Container();
-      aliasLayer.label = 'aliases';
-      aliasLayer.zIndex = 14;
-      worldContainer.addChild(aliasLayer);
-
-      const aliasOrb = new Graphics();
-      aliasOrb.visible = false;
-      aliasLayer.addChild(aliasOrb);
-
-      const aliasArrow = new Graphics();
-      aliasArrow.visible = false;
-      aliasLayer.addChild(aliasArrow);
-
-      const aliasAttackLayer = new Graphics();
-      aliasAttackLayer.zIndex = 44;
-      worldContainer.addChild(aliasAttackLayer);
+      const allyAttackLayer = new Graphics();
+      allyAttackLayer.zIndex = 44;
+      worldContainer.addChild(allyAttackLayer);
 
       // ── Generate dungeon ──────────────────────────────────────────
       const biome = getBiomeForFloor(currentFloor);
@@ -600,6 +584,17 @@ export function GameScreen() {
       const chestByKey = new Map<string, InteractiveTileAnim>();
       const teleportVisuals: TeleporterVisual[] = [];
       let teleportPair: TeleporterPair | null = null;
+
+      // Pre-load portal textures via Assets.load (Texture.from doesn't work without cache)
+      const portalPaths = ['/portal1.png', '/portal2.png', '/portal3.png', '/portal4.png', '/portal5.png'];
+      let portalTextures: Texture[] = [];
+      try {
+        const loaded = await Promise.all(portalPaths.map((p) => Assets.load(p).catch(() => null)));
+        portalTextures = loaded.filter((t): t is Texture => t != null);
+      } catch {
+        console.warn('[GameScreen] Failed to load portal textures, using fallback');
+      }
+      if (signal.aborted) return;
 
       const keyFor = (x: number, y: number) => `${x},${y}`;
       const manhattan = (ax: number, ay: number, bx: number, by: number) => Math.abs(ax - bx) + Math.abs(ay - by);
@@ -695,18 +690,19 @@ export function GameScreen() {
       };
 
       teleportPair = pickTeleportPair(itemCandidates);
-      if (teleportPair) {
+      if (teleportPair && portalTextures.length > 0) {
         const addTeleporter = (x: number, y: number) => {
-          const gfx = new Graphics();
-          const px = x * TILE_SIZE + TILE_SIZE / 2;
-          const py = y * TILE_SIZE + TILE_SIZE / 2;
-          gfx.circle(px, py, 12);
-          gfx.stroke({ color: 0x66ccff, width: 2, alpha: 0.9 });
-          gfx.circle(px, py, 6);
-          gfx.fill({ color: 0x66ccff, alpha: 0.35 });
-          gfx.zIndex = 4;
-          pickupContainer.addChild(gfx);
-          teleportVisuals.push({ tileX: x, tileY: y, gfx, pulseOffset: Math.random() * Math.PI * 2 });
+          const sprite = new AnimatedSprite(portalTextures);
+          sprite.anchor.set(0.5);
+          sprite.x = x * TILE_SIZE + TILE_SIZE / 2;
+          sprite.y = y * TILE_SIZE + TILE_SIZE / 2;
+          sprite.width = TILE_SIZE * 1.25;
+          sprite.height = TILE_SIZE * 2.1;
+          sprite.animationSpeed = 0.14;
+          sprite.zIndex = 4;
+          sprite.play();
+          pickupContainer.addChild(sprite);
+          teleportVisuals.push({ tileX: x, tileY: y, sprite });
           reserve(x, y);
         };
 
@@ -905,12 +901,53 @@ export function GameScreen() {
         allSpawnedEnemiesRef.current.push(enemy);
       }
 
-      if (isCalibrationRound) {
-        showNotification(`CALIBRATION ROUND — Explore to determine your playstyle!`);
-      } else {
-        const modePrefix = TEMP_EASY_GA_TEST_MODE ? 'TEST EASY MODE — ' : '';
-        showNotification(`${modePrefix}Floor ${dungeon.floor} — Iteration ${intelligenceRunRef.current} — ${spawnPts.length} enemies!`);
-      }
+      const allyRuntimes: AllyRuntime[] = [];
+      const selectedAllyIndices = useGameStore.getState().selectedAllies
+        .filter((idx) => idx !== selectedCharacter);
+      const allySpawnOffsets = [
+        { x: 1, y: 0 },
+        { x: -1, y: 0 },
+        { x: 0, y: 1 },
+        { x: 0, y: -1 },
+        { x: 1, y: 1 },
+        { x: -1, y: 1 },
+      ];
+      const findAllySpawn = (slot: number) => {
+        for (let i = 0; i < allySpawnOffsets.length; i++) {
+          const offset = allySpawnOffsets[(slot + i) % allySpawnOffsets.length];
+          const x = spawnX + offset.x;
+          const y = spawnY + offset.y;
+          if (grid.getNode(x, y)?.walkable) return { x, y };
+        }
+        return { x: spawnX, y: spawnY };
+      };
+
+      selectedAllyIndices.forEach((characterIndex, slot) => {
+        const charDef = CHARACTER_DEFS[characterIndex];
+        if (!charDef) return;
+        const spawn = findAllySpawn(slot);
+        const type = enemyTypeForCharacterName(charDef.name) ?? EnemyType.WARRIOR;
+        const role = getAllyRole(characterIndex);
+        const ally = createEnemy(type, spawn.x, spawn.y, createRandomGenome(currentFloor));
+        ally.maxHealth = Math.round(ally.maxHealth * 0.75);
+        ally.health = ally.maxHealth;
+        ally.attackDamage = role === 'fighter' ? Math.max(8, Math.round(ally.attackDamage * 0.75)) : 0;
+        ally.speed *= 1.05;
+        ally.container.removeChildren();
+        const allySprite = createCharacterEnemySprite(characterIndex);
+        allySprite.setTint(0x99ddff);
+        if (isLargeMap) {
+          allySprite.container.scale.set(LARGE_MAP_CHARACTER_SCALE);
+        }
+        for (const child of [...allySprite.container.children]) {
+          ally.container.addChild(child);
+        }
+        ally.gameSprite = allySprite;
+        ally.container.zIndex = 12;
+        ally.container.alpha = 0.95;
+        worldContainer.addChild(ally.container);
+        allyRuntimes.push({ enemy: ally, role, attackTimer: 0 });
+      });
 
       const finalizeLearning = (result: 'died' | 'manualExit' | 'floorClear') => {
         if (learningCommittedRef.current) return;
@@ -1078,38 +1115,18 @@ export function GameScreen() {
         if (loot.kind === 'invisibility') {
           p.state.isInvisible = true;
           p.state.invisibleTimer = Math.max(p.state.invisibleTimer, loot.duration);
-          showNotification(`👁️ Orb of Invisibility — ${loot.duration}s`);
+          showNotification(`👁️ Potion of Invisibility — ${loot.duration}s`);
           return;
         }
 
         if (loot.kind === 'oneHit') {
           p.state.oneHitTimer = Math.max(p.state.oneHitTimer, loot.duration);
-          showNotification(`💥 Orb of Precision — ${loot.duration}s one-hit`);
+          showNotification(`💥 Potion of Precision — ${loot.duration}s one-hit`);
           return;
         }
 
         p.state.speedBoostTimer = Math.max(p.state.speedBoostTimer, loot.duration);
-        showNotification(`⚡ Orb of Haste — ${loot.duration}s speed`);
-      };
-
-      const setAliasVisualStyle = (kind: AliasKind | null) => {
-        aliasOrb.clear();
-        aliasArrow.clear();
-        if (!kind) {
-          aliasOrb.visible = false;
-          aliasArrow.visible = false;
-          return;
-        }
-
-        const color = ALIAS_DEFS[kind].color;
-        // Draw a small "F"-shaped companion.
-        aliasOrb.rect(-6, -10, 4, 20);
-        aliasOrb.rect(-6, -10, 12, 4);
-        aliasOrb.rect(-6, -2, 10, 4);
-        aliasOrb.fill({ color, alpha: 0.8 });
-        aliasOrb.stroke({ color: 0xffffff, width: 1, alpha: 0.25 });
-        aliasOrb.visible = true;
-        aliasArrow.visible = kind === 'guide';
+        showNotification(`⚡ Potion of Haste — ${loot.duration}s speed`);
       };
 
       // ── Events ────────────────────────────────────────────────────
@@ -1133,8 +1150,7 @@ export function GameScreen() {
       let attackVisualTimer = 0;
       let playerAttackAnimTimer = 0;
       let teleportCooldown = 0;
-      let aliasKindCached: AliasKind | null = null;
-      let aliasAttackVisualTimer = 0;
+      let allyAttackVisualTimer = 0;
 
       // ══════════════════════════════════════════════════════════════
       // GAME LOOP
@@ -1228,9 +1244,6 @@ export function GameScreen() {
         const zone = getTelemetryZone(p.tileX, p.tileY);
         runTrackerRef.current.zoneTime[zone] = (runTrackerRef.current.zoneTime[zone] ?? 0) + dtSeconds;
 
-        const activeAliasNow = useGameStore.getState().activeAlias;
-        const aliasSpeedBoost = activeAliasNow === 'swift' ? ALIAS_SWIFT_MULTIPLIER : 1;
-
         const moveVec = input.getMovementVector();
         const moveX = moveVec.x;
         const moveY = moveVec.y;
@@ -1262,7 +1275,6 @@ export function GameScreen() {
         const speedBoost = p.state.speedBoostTimer > 0 ? ORB_SPEED_MULTIPLIER : 1;
         const moveSpeed = (p.state.isInvisible ? basePlayerMoveSpeed + 40 : basePlayerMoveSpeed)
           * sprintBoost
-          * aliasSpeedBoost
           * speedBoost
           * dtSeconds;
 
@@ -1328,47 +1340,10 @@ export function GameScreen() {
           glowChild.scale.set(pulse);
         }
 
-        if (activeAliasNow !== aliasKindCached) {
-          aliasKindCached = activeAliasNow;
-          setAliasVisualStyle(activeAliasNow);
-        }
-
-        if (activeAliasNow) {
-          const bob = Math.sin(Date.now() * 0.006) * 3;
-          aliasOrb.x = p.pixelX + 16;
-          aliasOrb.y = p.pixelY - 18 + bob;
-
-          if (activeAliasNow === 'guide') {
-            const dx = dungeon.exitPoint.x - p.tileX;
-            const dy = dungeon.exitPoint.y - p.tileY;
-            const angle = Math.atan2(dy, dx);
-            const arrowLen = 18;
-            aliasArrow.clear();
-            aliasArrow.moveTo(0, 0);
-            aliasArrow.lineTo(arrowLen, 0);
-            aliasArrow.stroke({ color: ALIAS_DEFS.guide.color, width: 2, alpha: 0.9 });
-            aliasArrow.moveTo(arrowLen, 0);
-            aliasArrow.lineTo(arrowLen - 6, -4);
-            aliasArrow.stroke({ color: ALIAS_DEFS.guide.color, width: 2, alpha: 0.9 });
-            aliasArrow.moveTo(arrowLen, 0);
-            aliasArrow.lineTo(arrowLen - 6, 4);
-            aliasArrow.stroke({ color: ALIAS_DEFS.guide.color, width: 2, alpha: 0.9 });
-            aliasArrow.x = p.pixelX + 22;
-            aliasArrow.y = p.pixelY - 30;
-            aliasArrow.rotation = angle;
-            aliasArrow.visible = true;
-          } else {
-            aliasArrow.visible = false;
-          }
-        }
-
         // ── TELEPORTERS + PICKUPS ───────────────────────────────
-        if (teleportVisuals.length > 0) {
-          const now = Date.now();
-          for (const tele of teleportVisuals) {
-            const pulse = 1 + Math.sin(now * 0.004 + tele.pulseOffset) * 0.08;
-            tele.gfx.scale.set(pulse);
-          }
+        for (const tele of teleportVisuals) {
+          tele.sprite.x = tele.tileX * TILE_SIZE + TILE_SIZE / 2;
+          tele.sprite.y = tele.tileY * TILE_SIZE + TILE_SIZE / 2;
         }
 
         if (teleportCooldown > 0) teleportCooldown = Math.max(0, teleportCooldown - dtSeconds);
@@ -1408,13 +1383,9 @@ export function GameScreen() {
             storeActionsRef.current.addScore(5);
             showNotification(`🪙 +${coin.value} coin`);
 
-            if (!aliasShopNotifiedRef.current && currentFloor >= ALIAS_SHOP_MIN_FLOOR) {
-              const nextCoins = useGameStore.getState().coinCount;
-              const minCost = ALIAS_DEFS[ALIAS_ORDER[0]].cost;
-              if (nextCoins >= minCost) {
-                aliasShopNotifiedRef.current = true;
-                showNotification('Alias Shop unlocked on the main menu.');
-              }
+            if (!alliesShopNotifiedRef.current) {
+              alliesShopNotifiedRef.current = true;
+              showNotification('Allies can be purchased from the main menu.');
             }
           }
         }
@@ -1438,6 +1409,34 @@ export function GameScreen() {
           if (chest.isOpened && !chest.isLooted) {
             chest.isLooted = true;
             applyChestLoot(chest.loot);
+
+            // Show floating potion sprite if textures available
+            if (itemAnims.potion.length > 0) {
+              const potionSprite = new AnimatedSprite(itemAnims.potion);
+              potionSprite.anchor.set(0.5);
+              potionSprite.x = chest.tileX * TILE_SIZE + TILE_SIZE / 2;
+              potionSprite.y = chest.tileY * TILE_SIZE;
+              potionSprite.width = TILE_SIZE * 0.8;
+              potionSprite.height = TILE_SIZE * 0.8;
+              potionSprite.animationSpeed = 0.15;
+              potionSprite.zIndex = 50;
+              potionSprite.play();
+              pickupContainer.addChild(potionSprite);
+              // Float up and fade out
+              const startY = potionSprite.y;
+              let elapsed = 0;
+              const floatTicker = () => {
+                elapsed += 0.016;
+                potionSprite.y = startY - elapsed * 30;
+                potionSprite.alpha = Math.max(0, 1 - elapsed);
+                if (elapsed >= 1) {
+                  app.ticker.remove(floatTicker);
+                  pickupContainer.removeChild(potionSprite);
+                  potionSprite.destroy();
+                }
+              };
+              app.ticker.add(floatTicker);
+            }
           }
         }
 
@@ -1482,28 +1481,6 @@ export function GameScreen() {
             }
           }
 
-          if (activeAliasNow === 'striker') {
-            const strikeDamage = ALIAS_STRIKER_DAMAGE;
-            let struck = 0;
-            aliasAttackLayer.clear();
-            for (const enemy of enemiesRef.current) {
-              if (!enemy.isAlive) continue;
-              const dx = enemy.tileX - p.tileX;
-              const dy = enemy.tileY - p.tileY;
-              const dist = Math.sqrt(dx * dx + dy * dy);
-              if (dist <= ALIAS_STRIKER_RANGE) {
-                enemy.takeDamage(strikeDamage);
-                aliasAttackLayer.moveTo(p.pixelX, p.pixelY - 10);
-                aliasAttackLayer.lineTo(enemy.pixelX, enemy.pixelY - 12);
-                aliasAttackLayer.stroke({ color: ALIAS_DEFS.striker.color, width: 2, alpha: 0.7 });
-                struck += 1;
-              }
-            }
-            if (struck > 0) {
-              aliasAttackVisualTimer = 0.2;
-            }
-          }
-
           attackVisualTimer = 0.2;
           attackLayer.clear();
           attackLayer.circle(p.pixelX, p.pixelY, p.attackRange * TILE_SIZE);
@@ -1517,9 +1494,9 @@ export function GameScreen() {
           if (attackVisualTimer <= 0) attackLayer.clear();
         }
 
-        if (aliasAttackVisualTimer > 0) {
-          aliasAttackVisualTimer -= dt;
-          if (aliasAttackVisualTimer <= 0) aliasAttackLayer.clear();
+        if (allyAttackVisualTimer > 0) {
+          allyAttackVisualTimer -= dt;
+          if (allyAttackVisualTimer <= 0) allyAttackLayer.clear();
         }
 
         // ── ITEMS ──────────────────────────────────────────────────
@@ -1550,6 +1527,53 @@ export function GameScreen() {
         if (p.state.isHiding || p.state.isInvisible) {
           playerProfileRef.current.totalHides += 1;
           playerProfileRef.current.timeSpentHiding += dtSeconds;
+        }
+
+        for (const allyRuntime of allyRuntimes) {
+          const ally = allyRuntime.enemy;
+          if (!ally.isAlive) continue;
+          allyRuntime.attackTimer = Math.max(0, allyRuntime.attackTimer - dtSeconds);
+          const nearestEnemy = enemiesRef.current
+            .filter((enemy) => enemy.isAlive)
+            .map((enemy) => ({
+              enemy,
+              dist: Math.hypot(enemy.tileX - ally.tileX, enemy.tileY - ally.tileY),
+            }))
+            .sort((a, b) => a.dist - b.dist)[0]?.enemy;
+
+          const targetX = nearestEnemy ? nearestEnemy.tileX : p.tileX;
+          const targetY = nearestEnemy ? nearestEnemy.tileY : p.tileY;
+          let allyTimer = pathTimers.get(ally.id) ?? 0;
+          allyTimer -= dt;
+          pathTimers.set(ally.id, allyTimer);
+          if (allyTimer <= 0) {
+            ally.requestPath(grid, targetX, targetY);
+            pathTimers.set(ally.id, 0.85);
+          }
+
+          // Allies run on manual target/path steering. Keep them out of alert/chasing
+          // state to avoid the alert stun loop that makes them freeze in place.
+          ally.alertState = AlertState.IDLE;
+          ally.blackboard.playerVisible = false;
+          ally.blackboard.alertTimer = 0;
+          ally.update(dt, grid, targetX, targetY);
+
+          if (allyRuntime.role === 'fighter' && nearestEnemy && allyRuntime.attackTimer <= 0) {
+            const dist = Math.hypot(nearestEnemy.tileX - ally.tileX, nearestEnemy.tileY - ally.tileY);
+            if (dist <= 1.6) {
+              allyRuntime.attackTimer = 0.9;
+              ally.gameSprite.setAnimation('attack');
+              nearestEnemy.takeDamage(ally.attackDamage);
+              allyAttackLayer.clear();
+              allyAttackLayer.moveTo(ally.pixelX, ally.pixelY - 10);
+              allyAttackLayer.lineTo(nearestEnemy.pixelX, nearestEnemy.pixelY - 12);
+              allyAttackLayer.stroke({ color: 0x99ddff, width: 2, alpha: 0.75 });
+              allyAttackVisualTimer = 0.18;
+              if (!nearestEnemy.isAlive) {
+                storeActionsRef.current.addScore(75 + currentFloor * 25);
+              }
+            }
+          }
         }
 
         // ── ENEMY AI + MOVEMENT ────────────────────────────────────
@@ -1626,6 +1650,20 @@ export function GameScreen() {
               }
             }
 
+            const nearestAlly = allyRuntimes
+              .map((allyRuntime) => allyRuntime.enemy)
+              .filter((ally) => ally.isAlive)
+              .map((ally) => ({
+                ally,
+                dist: Math.hypot(ally.tileX - enemy.tileX, ally.tileY - enemy.tileY),
+              }))
+              .sort((a, b) => a.dist - b.dist)[0];
+            if (nearestAlly && nearestAlly.dist <= Math.max(5, enemy.visionRange * 0.8)) {
+              targetX = nearestAlly.ally.tileX;
+              targetY = nearestAlly.ally.tileY;
+              enemy.alertState = AlertState.CHASING;
+            }
+
             enemy.requestPath(grid, targetX, targetY);
           }
 
@@ -1633,14 +1671,28 @@ export function GameScreen() {
 
           // ── Enemy attacks player on contact ──────────────────────
           if (!p.state.isInvisible && enemy.attackTimer <= 0) {
+            const targetAlly = allyRuntimes
+              .map((allyRuntime) => allyRuntime.enemy)
+              .filter((ally) => ally.isAlive)
+              .map((ally) => ({
+                ally,
+                dist: Math.hypot(ally.tileX - enemy.tileX, ally.tileY - enemy.tileY),
+              }))
+              .sort((a, b) => a.dist - b.dist)[0];
+            if (targetAlly && targetAlly.dist <= 1.5) {
+              enemy.attackTimer = enemy.attackCooldown;
+              enemy.gameSprite.setAnimation('attack');
+              targetAlly.ally.takeDamage(enemy.attackDamage);
+              continue;
+            }
+
             const edx = enemy.tileX - p.tileX;
             const edy = enemy.tileY - p.tileY;
             const edist = Math.sqrt(edx * edx + edy * edy);
             if (edist <= 1.5) {
               enemy.attackTimer = enemy.attackCooldown;
               enemy.gameSprite.setAnimation('attack');
-              const aegisReduction = activeAliasNow === 'aegis' ? ALIAS_AEGIS_REDUCTION : 0;
-              const dmg = Math.max(1, Math.round(enemy.attackDamage * (1 - aegisReduction)));
+              const dmg = Math.max(1, Math.round(enemy.attackDamage));
               enemy.performance.damageDealt += dmg;
               p.health = Math.max(0, p.health - dmg);
               runTrackerRef.current.damageTaken += dmg;
@@ -1730,8 +1782,7 @@ export function GameScreen() {
         const playerTile = dungeon.tiles[p.tileY]?.[p.tileX];
         const playerOnInteractiveSpear = isPlayerOnInteractiveSpear(tilemapAnimRuntime, p.tileX, p.tileY);
         if (playerTile === TileType.FLOOR_TRAP && !playerOnInteractiveSpear) {
-          const aegisReduction = activeAliasNow === 'aegis' ? ALIAS_AEGIS_REDUCTION : 0;
-          const trapDmg = 15 * dt * (1 - aegisReduction);
+          const trapDmg = 15 * dt;
           p.health = Math.max(0, p.health - trapDmg);
           runTrackerRef.current.damageTaken += trapDmg;
           storeActionsRef.current.setPlayerHealth(Math.round(p.health));
@@ -1743,8 +1794,7 @@ export function GameScreen() {
         }
 
         updateInteractiveTileAnimations(tilemapAnimRuntime, p.tileX, p.tileY, dtSeconds, currentDifficulty, (damage) => {
-          const aegisReduction = activeAliasNow === 'aegis' ? ALIAS_AEGIS_REDUCTION : 0;
-          const finalDamage = damage * (1 - aegisReduction);
+          const finalDamage = damage;
           p.health = Math.max(0, p.health - finalDamage);
           runTrackerRef.current.damageTaken += finalDamage;
           storeActionsRef.current.setPlayerHealth(Math.round(p.health));

@@ -5,6 +5,7 @@
 import { useCallback, useState } from 'react';
 import { useGameStore } from '@store/gameStore';
 import { CHARACTER_DEFS } from '@core/SpriteFactory';
+import { getCharacterAlgoLabel } from '@game/allies/AllyDefs';
 
 export function CharacterSelectScreen() {
   const setScreen = useGameStore((s) => s.setScreen);
@@ -19,7 +20,8 @@ export function CharacterSelectScreen() {
 
   const handleConfirm = useCallback(() => {
     setSelectedCharacter(selected);
-    setScreen('playing');
+    const hasAvailableAlly = useGameStore.getState().unlockedAllies.some((idx) => idx !== selected);
+    setScreen(hasAvailableAlly ? 'alliesSelect' : 'playing');
   }, [selected, setSelectedCharacter, setScreen]);
 
   const handleBack = useCallback(() => {
@@ -56,8 +58,8 @@ export function CharacterSelectScreen() {
                     src={charDef.icon}
                     alt={charDef.name}
                     style={{
-                      width: '64px',
-                      height: '64px',
+                      width: '50px',
+                      height: '50px',
                       objectFit: 'contain',
                       imageRendering: 'pixelated',
                     }}
@@ -65,7 +67,7 @@ export function CharacterSelectScreen() {
                 ) : (() => {
                   const fW = charDef.frameW || 64;
                   const fH = charDef.frameH || 64;
-                  const displaySize = 64;
+                  const displaySize = 50;
                   const scale = displaySize / Math.max(fW, fH);
                   return (
                     <div
@@ -87,7 +89,7 @@ export function CharacterSelectScreen() {
               {/* Info */}
               <div className="character-info">
                 <span className="character-name" style={{ color: charDef.color }}>
-                  {charDef.name}
+                  {charDef.name}{getCharacterAlgoLabel(index) ? ` (${getCharacterAlgoLabel(index)})` : ''}
                 </span>
                 <span className="character-desc">{charDef.description}</span>
               </div>

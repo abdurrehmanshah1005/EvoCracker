@@ -405,6 +405,65 @@ export class Archer extends EnemyBase {
 
 // ── Enemy Factory ─────────────────────────────────────────────────────
 
+export class GenericCharacterEnemy extends EnemyBase {
+  constructor(type: EnemyType, tileX: number, tileY: number, genome?: Genome) {
+    super(type, tileX, tileY, genome);
+
+    if (type === EnemyType.MUMMY) {
+      this.speed *= 0.75;
+      this.maxHealth = Math.round(this.maxHealth * 1.6);
+      this.health = this.maxHealth;
+    } else if (type === EnemyType.BOMBER) {
+      this.attackDamage *= 1.4;
+      this.visionRange *= 1.1;
+    } else if (type === EnemyType.KNIGHT) {
+      this.maxHealth = Math.round(this.maxHealth * 1.5);
+      this.health = this.maxHealth;
+      this.speed *= 0.85;
+    } else if (type === EnemyType.BARBARIAN) {
+      this.attackDamage *= 1.7;
+      this.speed *= 0.9;
+    } else if (type === EnemyType.WARRIOR) {
+      this.attackDamage *= 1.25;
+      this.speed *= 1.05;
+    } else if (type === EnemyType.ASSASSIN) {
+      this.attackDamage *= 1.8;
+      this.speed *= 1.35;
+      this.maxHealth = Math.round(this.maxHealth * 0.75);
+      this.health = this.maxHealth;
+    } else if (type === EnemyType.NECROMANCER) {
+      this.visionRange *= 1.35;
+      this.speed *= 0.8;
+    }
+  }
+
+  protected buildDefaultTree(): BehaviorTree {
+    const root = new Selector('root', [
+      new Sequence('hunt', [
+        new Condition('playerVisible', (b: Blackboard) => b.distanceToPlayer < this.visionRange),
+        new Action('pursue', (b: Blackboard) => {
+          this.alertState = AlertState.CHASING;
+          b.lastKnownPlayerX = b.playerX;
+          b.lastKnownPlayerY = b.playerY;
+          return BTStatus.RUNNING;
+        }),
+      ]),
+      new Sequence('search', [
+        new Condition('hasLastKnown', (b: Blackboard) => b.lastKnownPlayerX >= 0),
+        new Action('investigate', (_b: Blackboard) => {
+          this.alertState = AlertState.ALERT;
+          return BTStatus.RUNNING;
+        }),
+      ]),
+      new Action('patrol', (_b: Blackboard) => {
+        this.alertState = AlertState.IDLE;
+        return BTStatus.RUNNING;
+      }),
+    ]);
+    return new BehaviorTree(this.id, root);
+  }
+}
+
 export function createEnemy(
   type: EnemyType,
   tileX: number,
@@ -420,6 +479,18 @@ export function createEnemy(
     case EnemyType.WEREWOLF:     return new Assassin(tileX, tileY, genome);
     case EnemyType.FROGGY:       return new Goblin(tileX, tileY, genome);
     case EnemyType.DEMON:        return new Archer(tileX, tileY, genome);
+    case EnemyType.MUMMY:
+    case EnemyType.BOMBER:
+    case EnemyType.KNIGHT:
+    case EnemyType.BARBARIAN:
+    case EnemyType.WARRIOR:
+    case EnemyType.ASSASSIN:
+    case EnemyType.NECROMANCER:
+    case EnemyType.DRAGON:
+    case EnemyType.LIZARD:
+    case EnemyType.SPACE_MARINE:
+    case EnemyType.SUNNY_MUSHROOM:
+      return new GenericCharacterEnemy(type, tileX, tileY, genome);
     default:                     return new Slime(tileX, tileY, genome);
   }
 }

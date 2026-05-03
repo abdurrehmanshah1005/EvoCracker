@@ -21,6 +21,8 @@ export type GameScreen =
   | 'leaderboard'
   | 'evolution'
   | 'aliasShop'
+  | 'alliesShop'
+  | 'alliesSelect'
   | 'gameOver';
 
 export type AliasKind = 'guide' | 'swift' | 'striker' | 'aegis';
@@ -181,7 +183,14 @@ interface GameState {
   addCoins: (amount: number) => void;
   spendCoins: (amount: number) => void;
 
-  // Aliases
+  // Allies
+  unlockedAllies: number[];
+  selectedAllies: number[];
+  unlockAlly: (characterIndex: number) => void;
+  toggleSelectedAlly: (characterIndex: number) => void;
+  clearSelectedAllies: () => void;
+
+  // Legacy aliases kept only so old persisted saves do not break.
   unlockedAliases: AliasKind[];
   activeAlias: AliasKind | null;
   unlockAlias: (kind: AliasKind) => void;
@@ -284,7 +293,24 @@ export const useGameStore = create<GameState>()(
       addCoins: (amount) => set((s) => ({ coinCount: s.coinCount + Math.max(0, amount) })),
       spendCoins: (amount) => set((s) => ({ coinCount: Math.max(0, s.coinCount - Math.max(0, amount)) })),
 
-      // Aliases
+      // Allies
+      unlockedAllies: [],
+      selectedAllies: [],
+      unlockAlly: (characterIndex) =>
+        set((s) => {
+          if (s.unlockedAllies.includes(characterIndex)) return s;
+          return { unlockedAllies: [...s.unlockedAllies, characterIndex] };
+        }),
+      toggleSelectedAlly: (characterIndex) =>
+        set((s) => {
+          if (s.selectedAllies.includes(characterIndex)) {
+            return { selectedAllies: s.selectedAllies.filter((idx) => idx !== characterIndex) };
+          }
+          return { selectedAllies: [...s.selectedAllies, characterIndex].slice(-2) };
+        }),
+      clearSelectedAllies: () => set({ selectedAllies: [] }),
+
+      // Legacy aliases
       unlockedAliases: [],
       activeAlias: null,
       unlockAlias: (kind) =>
@@ -413,6 +439,8 @@ export const useGameStore = create<GameState>()(
         musicEnabled: state.musicEnabled,
         currentTrack: state.currentTrack,
         coinCount: state.coinCount,
+        unlockedAllies: state.unlockedAllies,
+        selectedAllies: state.selectedAllies,
         unlockedAliases: state.unlockedAliases,
         activeAlias: state.activeAlias,
       }),

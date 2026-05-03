@@ -514,58 +514,63 @@ body {
   width: 100%;
   height: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 32px;
-  overflow: hidden;
+  padding: 20px 16px;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .alias-shop-content {
-  width: min(1100px, 92vw);
-  padding: 28px 32px 32px;
+  width: min(1200px, 96vw);
+  padding: 20px 24px 24px;
   border-radius: 16px;
   border: 1px solid var(--border-medium);
   background: var(--bg-glass);
   backdrop-filter: blur(10px);
   box-shadow: var(--shadow-lg);
   text-align: center;
+  margin: auto;
 }
 
 .alias-shop-title {
   font-family: var(--font-gothic);
-  font-size: 2.4rem;
+  font-size: 2rem;
   color: var(--gold-light);
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .alias-shop-subtitle {
   color: var(--text-muted);
-  font-size: 0.95rem;
-  margin-bottom: 16px;
+  font-size: 0.85rem;
+  margin-bottom: 10px;
 }
 
 .alias-shop-coins {
   font-family: var(--font-pixel2);
   color: var(--gold);
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .alias-card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 18px;
-  margin-bottom: 22px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+  max-height: calc(100vh - 260px);
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .alias-card {
   border: 1px solid var(--border-subtle);
   background: var(--bg-card);
-  padding: 16px;
-  border-radius: 12px;
+  padding: 10px;
+  border-radius: 10px;
   box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 6px;
 }
 
 .alias-card.unlocked {
@@ -582,19 +587,27 @@ body {
 }
 
 .alias-card-name {
-  font-size: 1.1rem;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .alias-card-cost {
   color: var(--gold);
-  font-size: 0.95rem;
+  font-size: 0.8rem;
+  flex-shrink: 0;
 }
 
 .alias-card-desc {
   color: var(--text-secondary);
-  font-size: 0.85rem;
-  line-height: 1.4;
-  min-height: 3.4em;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  min-height: 2.2em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .alias-card-actions {
@@ -602,8 +615,25 @@ body {
   justify-content: center;
 }
 
+.alias-card-actions .btn {
+  font-size: 1rem;
+  padding: 4px 12px;
+}
+
 .alias-shop-footer {
   margin-top: 4px;
+}
+
+@media (max-width: 900px) {
+  .alias-card-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .alias-card-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 /* --- Game Screen Layout --- */
@@ -1510,7 +1540,7 @@ body {
   position: relative;
   overflow-x: hidden;
   overflow-y: auto;
-  padding: var(--space-lg) var(--space-md);
+  padding: var(--space-md) var(--space-md);
 }
 
 .character-select-content {
@@ -1519,16 +1549,16 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-lg);
+  gap: var(--space-md);
   animation: fadeInUp var(--duration-slow) var(--ease-out);
   width: 100%;
-  max-width: 760px;
+  max-width: 900px;
   margin: auto;
 }
 
 .character-select-title {
   font-family: var(--font-fantasy);
-  font-size: 2.4rem;
+  font-size: 2rem;
   font-weight: 900;
   color: var(--gold);
   text-shadow:
@@ -1545,27 +1575,29 @@ body {
   color: var(--text-muted);
   letter-spacing: 3px;
   text-transform: uppercase;
-  margin-top: -8px;
+  margin-top: -4px;
 }
 
 .character-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-md);
-  max-width: 560px;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  max-width: 860px;
   width: 100%;
-  padding: 0 var(--space-md);
+  padding: 0 var(--space-sm);
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
 }
 
 .character-card {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--space-sm);
-  padding: var(--space-md);
+  gap: 4px;
+  padding: 8px;
   background: var(--bg-card);
   border: 2px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--duration-normal) var(--ease-out);
   position: relative;
@@ -1583,7 +1615,7 @@ body {
 
 .character-card:hover {
   border-color: var(--border-medium);
-  transform: translateY(-4px);
+  transform: translateY(-3px);
   box-shadow: var(--shadow-md);
 }
 
@@ -1594,7 +1626,7 @@ body {
 .character-card-selected {
   border-color: var(--gold) !important;
   box-shadow: 0 0 20px var(--gold-glow), 0 0 40px rgba(200, 168, 80, 0.1) !important;
-  transform: translateY(-4px) !important;
+  transform: translateY(-3px) !important;
   animation: pulseGlow 2s ease-in-out infinite;
 }
 
@@ -1603,8 +1635,8 @@ body {
 }
 
 .character-preview {
-  width: 64px;
-  height: 64px;
+  width: 50px;
+  height: 50px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1670,25 +1702,25 @@ body {
 
 @media (max-height: 900px) {
   .character-select-content {
-    gap: var(--space-md);
+    gap: var(--space-sm);
   }
 
   .character-select-title {
-    font-size: 2rem;
+    font-size: 1.8rem;
   }
 
   .character-grid {
-    gap: var(--space-sm);
-    max-width: 520px;
+    gap: 8px;
+    max-width: 860px;
   }
 
   .character-card {
-    padding: var(--space-sm);
+    padding: 6px;
   }
 
   .character-preview {
-    width: 56px;
-    height: 56px;
+    width: 48px;
+    height: 48px;
   }
 
   .character-select-actions {
@@ -1696,14 +1728,20 @@ body {
   }
 }
 
+@media (max-width: 760px) {
+  .character-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
 @media (max-height: 760px) {
   .character-select-screen {
-    padding-top: var(--space-md);
-    padding-bottom: var(--space-md);
+    padding-top: var(--space-sm);
+    padding-bottom: var(--space-sm);
   }
 
   .character-select-title {
-    font-size: 1.8rem;
+    font-size: 1.6rem;
   }
 
   .character-select-subtitle {
@@ -1714,7 +1752,7 @@ body {
   }
 
   .character-grid {
-    gap: 10px;
+    gap: 6px;
   }
 
   .character-desc {
@@ -1775,9 +1813,10 @@ body {
 
 .map-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(260px, 320px));
   gap: var(--space-lg);
   width: 100%;
+  justify-content: center;
 }
 
 .map-card {
@@ -1790,6 +1829,7 @@ body {
   transition: all var(--duration-normal) var(--ease-out);
   position: relative;
   overflow: hidden;
+  width: 100%;
 }
 
 .map-card:hover {

@@ -64,9 +64,10 @@ export function updateVision(
     const dy = playerTileY - enemy.tileY;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    // Stealth radius: if player hiding, reduce effective vision range
+    // Stealth: if player is fully invisible, enemies cannot see at all.
+    // If player is merely hiding, reduce effective vision range.
     const effectiveRange = playerIsHiding
-      ? enemy.visionRange * 0.4
+      ? 0
       : enemy.visionRange;
 
     const playerInRange = dist <= effectiveRange;

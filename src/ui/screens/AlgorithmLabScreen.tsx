@@ -258,9 +258,9 @@ function GeneEvolutionChart({
 }) {
   const width = 560;
   const padding = 32;
-  const geneLabels = ['speed', 'vision', 'aggression', 'persistence', 'cautiousness', 'pack', 'ambush'];
-  const geneKeys = ['speedGene', 'visionGene', 'aggressionGene', 'persistenceGene', 'cautiousnessGene', 'packTendencyGene', 'ambushTendencyGene'];
-  const geneColors = ['#44ddff', '#4488ff', '#ff4466', '#ff8844', '#ffcc44', '#aa44ff', '#44dd66'];
+  const geneLabels = ['speed', 'vision', 'aggression', 'persistence', 'cautiousness', 'pack', 'ambush', 'patrol'];
+  const geneKeys = ['speed', 'vision', 'aggression', 'persistence', 'cautiousness', 'packTendency', 'ambushTendency', 'patrolVariance'];
+  const geneColors = ['#44ddff', '#4488ff', '#ff4466', '#ff8844', '#ffcc44', '#aa44ff', '#44dd66', '#f472b6'];
   const labels = proofHistory.map((p) => `I${p.iteration}`);
 
   const allValues: number[] = [];
